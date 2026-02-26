@@ -148,9 +148,32 @@ struct RequestContext {
     int64_t     user_id;
     std::string username;
     std::string role;       // "admin" | "operator" | "viewer"
-    std::string auth_method; // "local" | "oidc" | "saml"
+    std::string auth_method; // "local" | "oidc" | "saml" | "api_key"
 };
 ```
+
+**AuthMiddleware Dual-Mode Validation:**
+`AuthMiddleware` accepts two mutually exclusive credential schemes on every request:
+
+1. **JWT Bearer** (`Authorization: Bearer <jwt>`) — used by the Web GUI and any client that completed an interactive login flow.
+2. **API Key** (`X-API-Key: <raw_key>`) — used by the TUI and any automated/scripted client.
+
+```
+Incoming request
+  ├─ Has "Authorization: Bearer <token>"?
+  │     ├─ Verify JWT signature (HS256, DNS_JWT_SECRET)
+  │     ├─ Check exp not exceeded
+  │     ├─ SessionRepository::isRevoked(SHA256(jwt))
+  │     └─ Inject RequestContext {auth_method="local"|"oidc"|"saml"}
+  └─ Has "X-API-Key: <key>"?
+        ├─ SHA-256 hash the raw key
+        ├─ ApiKeyRepository::findByHash(hash)
+        ├─ Check revoked=false, expires_at > NOW() (or expires_at IS NULL)
+        ├─ UserRepository::findById(user_id) → username + resolve role
+        └─ Inject RequestContext {auth_method="api_key"}
+```
+
+If neither header is present, or validation fails, `AuthMiddleware` returns `401 AuthenticationError`.
 
 ---
 
@@ -419,7 +442,7 @@ public:
 
 **Header:** `security/AuthService.hpp`
 
-The system supports three authentication methods simultaneously. All methods produce a JWT session token upon success.
+The system supports four authentication methods simultaneously. The first three (local, OIDC, SAML) are interactive flows used by the Web GUI; they all produce a JWT session token upon success. The fourth (API key) is a non-interactive, stateless method used by the TUI and automated clients.
 
 **Local Authentication (User/Group/Role):**
 - Passwords hashed with Argon2id (via OpenSSL or `libsodium`)
@@ -439,7 +462,15 @@ The system supports three authentication methods simultaneously. All methods pro
 - Maps SAML attribute to role via configurable attribute name (`DNS_SAML_ROLE_ATTR`)
 - Auto-provisions users on first login if `DNS_SAML_AUTO_PROVISION=true`
 
-**Session Tokens:**
+**API Key Authentication:**
+- Pre-provisioned long-lived tokens created by an admin via `POST /api/v1/auth/keys`
+- Raw key is shown to the admin exactly once at creation time; only the SHA-256 hash is stored in the `api_keys` table
+- Sent on every request as `X-API-Key: <raw_key>`; no session is created, no JWT is issued
+- Optional expiry (`expires_at`); revocable at any time via `DELETE /api/v1/auth/keys/{id}`
+- Used exclusively by the TUI; the TUI reads the key from `DNS_TUI_API_KEY` env var or `~/.config/dns-orchestrator/credentials` (mode `0600`)
+- RBAC is enforced identically to other auth methods: the key is associated with a user, and that user's role applies
+
+**Session Tokens (JWT — interactive flows only):**
 - JWT (HS256), signed with `DNS_JWT_SECRET`
 - Payload: `{ sub, username, role, auth_method, iat, exp }`
 - Default expiry: 8 hours (configurable via `DNS_JWT_TTL_SECONDS`)
@@ -466,10 +497,18 @@ The system supports three authentication methods simultaneously. All methods pro
 **Header prefix:** `tui/`
 **Framework:** FTXUI
 
+**Authentication:**
+The TUI uses API key authentication exclusively. There is no interactive login screen. On startup, `TuiApp` loads the API key via `ApiKeyConfig`, validates it against `GET /api/v1/auth/me`, and proceeds directly to `MainScreen`. If the key is absent, expired, or revoked, the TUI prints an error message to stderr and exits with code 1.
+
+**API Key Loading (`ApiKeyConfig`):**
+1. Read `DNS_TUI_API_KEY` environment variable
+2. If unset, read `~/.config/dns-orchestrator/credentials` (must be mode `0600`; key on a line `api_key=<value>`)
+3. If neither source yields a key, exit with: `"Error: no API key configured. Set DNS_TUI_API_KEY or create ~/.config/dns-orchestrator/credentials"`
+
 **Screen Hierarchy:**
 ```
 TuiApp
-├── LoginScreen          ← local/OIDC device-flow login
+├── (ApiKeyConfig)       ← startup only: loads key, calls GET /auth/me, exits on failure
 ├── MainScreen
 │   ├── ViewSwitcher     ← keystroke: Tab cycles through views
 │   ├── ZoneListPane     ← left panel: zones in current view
@@ -497,7 +536,7 @@ TuiApp
 | `q` | Quit |
 
 **TUI ↔ API Communication:**
-The TUI communicates with the same REST API as the Web GUI. It does not have direct DB access. This ensures a single code path for all mutations.
+The TUI communicates with the same REST API as the Web GUI. It does not have direct DB access. This ensures a single code path for all mutations. Every request sent by the TUI includes the `X-API-Key: <raw_key>` header; no session state is maintained between requests.
 
 ---
 
@@ -532,7 +571,7 @@ CREATE TYPE variable_type   AS ENUM ('ipv4', 'ipv6', 'target', 'string');
 CREATE TYPE variable_scope  AS ENUM ('global', 'zone');
 CREATE TYPE staging_op      AS ENUM ('create', 'update', 'delete');
 CREATE TYPE user_role       AS ENUM ('admin', 'operator', 'viewer');
-CREATE TYPE auth_method     AS ENUM ('local', 'oidc', 'saml');
+CREATE TYPE auth_method     AS ENUM ('local', 'oidc', 'saml', 'api_key');
 ```
 
 ### 5.2 Tables
@@ -666,6 +705,17 @@ CREATE TABLE sessions (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     revoked     BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+-- API keys (used by TUI and automated clients; no session created)
+CREATE TABLE api_keys (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_hash    TEXT NOT NULL UNIQUE,       -- SHA-256 of the raw key; raw key shown once at creation
+    description TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at  TIMESTAMPTZ,               -- NULL = never expires
+    revoked     BOOLEAN NOT NULL DEFAULT FALSE
+);
 ```
 
 ### 5.3 Indexes
@@ -678,6 +728,8 @@ CREATE INDEX idx_audit_log_timestamp   ON audit_log(timestamp DESC);
 CREATE INDEX idx_audit_log_entity      ON audit_log(entity_type, entity_id);
 CREATE INDEX idx_sessions_user_id      ON sessions(user_id);
 CREATE INDEX idx_sessions_expires_at   ON sessions(expires_at);
+CREATE INDEX idx_api_keys_key_hash     ON api_keys(key_hash);
+CREATE INDEX idx_api_keys_user_id      ON api_keys(user_id);
 ```
 
 ### 5.4 Migrations
@@ -696,7 +748,7 @@ scripts/db/
 
 **Base URL:** `/api/v1`
 **Content-Type:** `application/json`
-**Authentication:** `Authorization: Bearer <jwt>` on all endpoints except `/auth/*` and `/health`
+**Authentication:** `Authorization: Bearer <jwt>` or `X-API-Key: <key>` on all endpoints except `/auth/local/login`, `/auth/oidc/*`, `/auth/saml/*`, and `/health`
 
 ### 6.1 Authentication
 
@@ -709,6 +761,10 @@ scripts/db/
 | `GET`  | `/auth/saml/login` | No | Initiates SAML SP-initiated SSO |
 | `POST` | `/auth/saml/acs` | No | SAML Assertion Consumer Service endpoint |
 | `GET`  | `/auth/me` | Yes | Returns current user identity and role |
+| `GET`  | `/auth/keys` | admin | List all API keys (key_hash and metadata; raw key never returned) |
+| `POST` | `/auth/keys` | admin | Create a new API key; returns raw key **once** in response |
+| `GET`  | `/auth/keys/me` | any | List API keys belonging to the authenticated user |
+| `DELETE` | `/auth/keys/{id}` | admin | Revoke an API key immediately |
 
 ### 6.2 Providers
 
@@ -921,13 +977,35 @@ OIDC Login:
          ├─ Generate JWT and create session
          └─ Return {"token": "<jwt>"}
 
-Every Authenticated Request:
+Every Authenticated Request (JWT path):
   Authorization: Bearer <jwt>
-    └─ AuthMiddleware::validate(jwt)
+    └─ AuthMiddleware::validateJwt(jwt)
          ├─ Verify JWT signature (HS256, DNS_JWT_SECRET)
          ├─ Check exp not exceeded
          ├─ SessionRepository::isRevoked(SHA256(jwt))
-         └─ Inject RequestContext into handler
+         └─ Inject RequestContext {auth_method="local"|"oidc"|"saml"} into handler
+
+API Key Authentication (TUI / automated clients):
+  TUI Startup:
+    └─ ApiKeyConfig::load()
+         ├─ Read DNS_TUI_API_KEY env var
+         └─ Fallback: read ~/.config/dns-orchestrator/credentials (mode 0600, line: api_key=<value>)
+
+  GET /auth/me  [X-API-Key: <raw_key>]
+    └─ AuthMiddleware::validateApiKey(raw_key)
+         ├─ SHA-256(raw_key) → key_hash
+         ├─ ApiKeyRepository::findByHash(key_hash)
+         ├─ Check revoked=false
+         ├─ Check expires_at IS NULL OR expires_at > NOW()
+         ├─ UserRepository::findById(user_id) → username
+         ├─ GroupRepository::getHighestRole(user_id) → role
+         └─ Inject RequestContext {auth_method="api_key"} into handler
+
+  On success → TuiApp launches MainScreen directly (no LoginScreen)
+  On failure → TuiApp prints error to stderr and exits(1)
+
+  Every Subsequent TUI Request:
+    X-API-Key: <raw_key>   (stateless; validated fresh on every request)
 ```
 
 ---
@@ -961,6 +1039,7 @@ All configuration is provided via environment variables. No config files are req
 | `DNS_SAML_ACS_URL` | No | — | SAML Assertion Consumer Service URL |
 | `DNS_SAML_ROLE_ATTR` | No | `dns_role` | SAML attribute name to map to RBAC role |
 | `DNS_SAML_AUTO_PROVISION` | No | `false` | Auto-create users on first SAML login |
+| `DNS_TUI_API_KEY` | No | — | API key for TUI authentication; if unset, TUI reads `~/.config/dns-orchestrator/credentials` |
 | `DNS_AUDIT_STDOUT` | No | `false` | Mirror audit log entries to stdout (for Docker log collection) |
 | `DNS_LOG_LEVEL` | No | `info` | Log level: `debug`, `info`, `warn`, `error` |
 
@@ -1023,6 +1102,9 @@ All API errors return a consistent JSON body:
 | DB connection unavailable | Return 503; log to stderr |
 | JWT expired | Return 401 `token_expired` |
 | JWT revoked | Return 401 `token_revoked` |
+| API key not found | Return 401 `invalid_api_key` |
+| API key revoked | Return 401 `api_key_revoked` |
+| API key expired | Return 401 `api_key_expired` |
 
 ---
 
@@ -1076,7 +1158,8 @@ dns-orchestrator/
 │   │   ├── StagingRepository.hpp
 │   │   ├── AuditRepository.hpp
 │   │   ├── UserRepository.hpp
-│   │   └── SessionRepository.hpp
+│   │   ├── SessionRepository.hpp
+│   │   └── ApiKeyRepository.hpp
 │   ├── gitops/
 │   │   └── GitOpsMirror.hpp
 │   ├── security/
@@ -1084,8 +1167,8 @@ dns-orchestrator/
 │   │   └── AuthService.hpp
 │   └── tui/
 │       ├── TuiApp.hpp
+│       ├── ApiKeyConfig.hpp            # Loads API key from env var or credentials file
 │       ├── screens/
-│       │   ├── LoginScreen.hpp
 │       │   ├── MainScreen.hpp
 │       │   ├── PreviewScreen.hpp
 │       │   └── AuditLogScreen.hpp
@@ -1120,7 +1203,7 @@ dns-orchestrator/
 │   │   └── DigitalOceanProvider.cpp
 │   ├── dal/
 │   │   ├── ConnectionPool.cpp
-│   │   └── *Repository.cpp
+│   │   └── *Repository.cpp             # includes ApiKeyRepository.cpp
 │   ├── gitops/
 │   │   └── GitOpsMirror.cpp
 │   ├── security/
