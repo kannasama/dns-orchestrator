@@ -29,6 +29,12 @@
 9. [Error Taxonomy and Handling Strategy](#9-error-taxonomy-and-handling-strategy)
 10. [Directory and File Structure](#10-directory-and-file-structure)
 11. [Dockerfile and Deployment Model](#11-dockerfile-and-deployment-model)
+12. [Security Hardening Reference](#12-security-hardening-reference)
+    - 12.1 [Deployment Security Requirements](#121-deployment-security-requirements)
+    - 12.2 [PostgreSQL Least-Privilege Roles](#122-postgresql-least-privilege-roles)
+    - 12.3 [Secret Management](#123-secret-management)
+    - 12.4 [Rate Limiting (Reverse Proxy)](#124-rate-limiting-reverse-proxy)
+    - 12.5 [Git Remote Security](#125-git-remote-security)
 
 ---
 
@@ -426,19 +432,48 @@ private:
 **Header:** `security/CryptoService.hpp`
 
 - Algorithm: AES-256-GCM (via OpenSSL 3.x EVP API)
-- Master key: loaded from `DNS_MASTER_KEY` environment variable (32-byte hex string)
+- Master key: loaded from `DNS_MASTER_KEY` environment variable (32-byte hex string), or from the file at `DNS_MASTER_KEY_FILE` if the env var is unset (see §8 and §12.3)
 - Each provider token is encrypted with a unique 12-byte random IV stored alongside the ciphertext
 - Storage format: `base64(iv) + ":" + base64(ciphertext + tag)`
+- After loading the master key into memory, the raw string is zeroed via `OPENSSL_cleanse()`
 
 ```cpp
 class CryptoService {
 public:
     std::string encrypt(const std::string& plaintext) const;
     std::string decrypt(const std::string& ciphertext) const;
+
+    // SEC-01: API key generation and hashing (SHA-512 via OpenSSL EVP_sha512)
+    static std::string generateApiKey();              // 32 random bytes → base64url (43 chars)
+    static std::string hashApiKey(const std::string& raw_key); // → hex-encoded SHA-512
 };
 ```
 
-#### 4.6.2 Authentication
+#### 4.6.2 JWT Signing Abstraction
+
+**Header:** `security/IJwtSigner.hpp`
+
+JWT signing is abstracted behind an interface to allow algorithm upgrades without changing call sites. The current implementation is HS256; RS256/ES256 are future options. (SEC-03)
+
+```cpp
+// security/IJwtSigner.hpp
+class IJwtSigner {
+public:
+    virtual ~IJwtSigner() = default;
+    virtual std::string      sign(const nlohmann::json& payload) const = 0;
+    virtual nlohmann::json   verify(const std::string& token)    const = 0;
+    // verify() throws AuthenticationError on invalid signature, expiry, or malformed token
+};
+
+// Concrete implementations:
+// security/HmacJwtSigner.hpp  — HS256 (current; requires DNS_JWT_SECRET or DNS_JWT_SECRET_FILE)
+// security/RsaJwtSigner.hpp   — RS256 (future; requires DNS_JWT_PRIVATE_KEY_FILE + DNS_JWT_PUBLIC_KEY_FILE)
+// security/EcJwtSigner.hpp    — ES256 (future)
+```
+
+`AuthService` constructs the appropriate `IJwtSigner` at startup based on `DNS_JWT_ALGORITHM` (default: `HS256`).
+
+#### 4.6.3 Authentication
 
 **Header:** `security/AuthService.hpp`
 
@@ -450,28 +485,68 @@ The system supports four authentication methods simultaneously. The first three 
 - Groups are assigned roles: `admin`, `operator`, `viewer`
 - Role resolution: highest-privilege role across all groups wins
 
-**OIDC Authentication:**
+**OIDC Authentication (SEC-06):**
 - Implements Authorization Code Flow with PKCE
 - Validates ID token signature against provider JWKS endpoint
 - Maps OIDC `sub` claim to a local user record (auto-provisioned on first login if `DNS_OIDC_AUTO_PROVISION=true`)
 - Configurable claim-to-role mapping via `DNS_OIDC_ROLE_CLAIM`
+- **CSRF protection:** `state` parameter generated as 16 random bytes (base64url), stored in an HMAC-SHA256-signed cookie alongside `nonce`; validated on callback
+- **Replay protection:** `nonce` (16 random bytes, base64url) bound to the OIDC session cookie and verified against the `nonce` claim in the returned ID token
 
-**SAML 2.0 Authentication:**
+**OIDC State Cookie Format:**
+```
+Cookie: oidc_state=<base64url(state||nonce||exp)>.<HMAC-SHA256(payload, DNS_JWT_SECRET)>
+Attributes: HttpOnly; Secure; SameSite=Lax; Max-Age=600
+```
+
+**OIDC Callback Validation Sequence:**
+```
+GET /auth/oidc/callback?code=...&state=...
+  1. Read oidc_state cookie → verify HMAC signature (reject if invalid or expired)
+  2. Verify query param state == cookie state (reject if mismatch → log security event)
+  3. Exchange code for id_token at IdP token endpoint
+  4. Verify id_token.nonce == cookie nonce (reject if mismatch → log security event)
+  5. Clear oidc_state cookie
+  6. Issue JWT session
+```
+
+**SAML 2.0 Authentication (SEC-07):**
 - SP-initiated SSO via HTTP POST binding
 - Validates assertion signature against IdP metadata
 - Maps SAML attribute to role via configurable attribute name (`DNS_SAML_ROLE_ATTR`)
 - Auto-provisions users on first login if `DNS_SAML_AUTO_PROVISION=true`
+- **Replay protection:** In-memory `SamlReplayCache` tracks seen assertion IDs with TTL eviction matching each assertion's `NotOnOrAfter` window
 
-**API Key Authentication:**
+**SAML Replay Cache:**
+```cpp
+// security/SamlReplayCache.hpp
+class SamlReplayCache {
+public:
+    // Returns false if assertion_id was already seen (replay detected)
+    bool checkAndInsert(const std::string& assertion_id,
+                        std::chrono::system_clock::time_point not_on_or_after);
+private:
+    std::unordered_map<std::string,
+                       std::chrono::system_clock::time_point> cache_;
+    std::mutex mutex_;
+    void evictExpired();  // called on each insert; removes entries where not_on_or_after < now()
+};
+```
+
+> **Multi-instance note:** `SamlReplayCache` is process-local. Multi-instance deployments require a shared external cache (e.g., Redis). Document this in the deployment guide.
+
+**API Key Authentication (SEC-01):**
 - Pre-provisioned long-lived tokens created by an admin via `POST /api/v1/auth/keys`
-- Raw key is shown to the admin exactly once at creation time; only the SHA-256 hash is stored in the `api_keys` table
+- Raw key generated as 32 cryptographically random bytes (via `RAND_bytes()`), base64url-encoded → 43-character key
+- Raw key is shown to the admin exactly once at creation time; only the **SHA-512 hash** is stored in the `api_keys` table
 - Sent on every request as `X-API-Key: <raw_key>`; no session is created, no JWT is issued
 - Optional expiry (`expires_at`); revocable at any time via `DELETE /api/v1/auth/keys/{id}`
 - Used exclusively by the TUI; the TUI reads the key from `DNS_TUI_API_KEY` env var or `~/.config/dns-orchestrator/credentials` (mode `0600`)
 - RBAC is enforced identically to other auth methods: the key is associated with a user, and that user's role applies
 
 **Session Tokens (JWT — interactive flows only):**
-- JWT (HS256), signed with `DNS_JWT_SECRET`
+- JWT signed with algorithm specified by `DNS_JWT_ALGORITHM` (default: `HS256`) via `IJwtSigner`
+- Signing secret loaded from `DNS_JWT_SECRET` or `DNS_JWT_SECRET_FILE` (see §12.3)
 - Payload: `{ sub, username, role, auth_method, iat, exp }`
 - Default expiry: 8 hours (configurable via `DNS_JWT_TTL_SECONDS`)
 - Token hash stored in `sessions` table for revocation support
@@ -489,6 +564,45 @@ The system supports four authentication methods simultaneously. The first three 
 | Manage variables | ✗ | ✓ | ✓ |
 | Manage users/groups | ✗ | ✗ | ✓ |
 | View audit log | ✓ | ✓ | ✓ |
+| Purge audit log | ✗ | ✗ | ✓ |
+| Export audit log (NDJSON) | ✗ | ✗ | ✓ |
+
+#### 4.6.4 HTTP Security Headers (SEC-12)
+
+`ApiServer` applies a response middleware to **all routes** that injects the following headers:
+
+```
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: strict-origin-when-cross-origin
+Content-Security-Policy: default-src 'self'
+```
+
+The `Server:` response header is suppressed (Restbed's default server identification is removed).
+
+#### 4.6.5 Input Validation Limits (SEC-11)
+
+**HTTP Layer (Restbed configuration):**
+- Maximum request body size: **64 KB** — requests exceeding this return `413 Payload Too Large`
+
+**Application Layer (enforced in route handlers):**
+
+| Field | Maximum Length |
+|-------|---------------|
+| Zone name | 253 characters (DNS specification limit) |
+| Record name | 253 characters |
+| Record value / template | 4,096 characters |
+| Variable name | 64 characters |
+| Variable value | 4,096 characters |
+| Provider name | 128 characters |
+| Username | 128 characters |
+| Password (input) | 1,024 characters |
+| API key description | 512 characters |
+| Group name | 128 characters |
+| Audit query `identity` filter | 128 characters |
+
+**SQL Injection Prevention:**
+All SQL is executed via `libpqxx` parameterized queries (`pqxx::work::exec_params()`). Raw string interpolation of user input into SQL is **prohibited** throughout the codebase. This is a non-negotiable constraint enforced in code review.
 
 ---
 
@@ -710,7 +824,7 @@ CREATE TABLE sessions (
 CREATE TABLE api_keys (
     id          BIGSERIAL PRIMARY KEY,
     user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    key_hash    TEXT NOT NULL UNIQUE,       -- SHA-256 of the raw key; raw key shown once at creation
+    key_hash    TEXT NOT NULL UNIQUE,       -- SHA-512 of the raw key (SEC-01); raw key shown once at creation
     description TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at  TIMESTAMPTZ,               -- NULL = never expires
@@ -867,7 +981,11 @@ scripts/db/
 
 | Method | Path | Role Required | Description |
 |--------|------|---------------|-------------|
-| `GET` | `/audit` | viewer | Query audit log (filterable by `?entity_type=`, `?identity=`, `?from=`, `?to=`) |
+| `GET`    | `/audit` | viewer | Query audit log (filterable by `?entity_type=`, `?identity=`, `?from=`, `?to=`) |
+| `GET`    | `/audit/export` | admin | Stream full audit log as NDJSON (`application/x-ndjson`); supports `?from=` and `?to=` ISO 8601 params (SEC-05) |
+| `DELETE` | `/audit/purge` | admin | Purge audit entries older than `DNS_AUDIT_RETENTION_DAYS`; returns `{"deleted": N, "oldest_remaining": "<timestamp>"}` (SEC-04) |
+
+> **SIEM Integration:** Production deployments should configure an external SIEM (Splunk, Elastic, Datadog, etc.) to call `GET /audit/export` on a schedule before invoking `DELETE /audit/purge`. This provides tamper-evident long-term retention outside the application database.
 
 ### 6.10 Health
 
@@ -1014,12 +1132,18 @@ API Key Authentication (TUI / automated clients):
 
 All configuration is provided via environment variables. No config files are required at runtime (though a `.env` file may be used in development).
 
+For sensitive secrets (`DNS_MASTER_KEY`, `DNS_JWT_SECRET`), a `_FILE` variant is supported: if the base variable is unset, the application reads the secret from the file path specified in the `_FILE` variable. This is the recommended pattern for production deployments using Docker secrets or Kubernetes secret volume mounts (see §12.3).
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DNS_DB_URL` | Yes | — | PostgreSQL connection string (`postgresql://user:pass@host:5432/dbname`) |
+| `DNS_DB_URL` | Yes | — | PostgreSQL connection string for the `dns_app` role (`postgresql://user:pass@host:5432/dbname`) |
 | `DNS_DB_POOL_SIZE` | No | `10` | Number of DB connections in the pool |
-| `DNS_MASTER_KEY` | Yes | — | 32-byte hex string for AES-256-GCM credential encryption |
-| `DNS_JWT_SECRET` | Yes | — | Secret for JWT HS256 signing |
+| `DNS_AUDIT_DB_URL` | No | — | PostgreSQL connection string for the `dns_audit_admin` role; required to use `DELETE /audit/purge` (SEC-13) |
+| `DNS_MASTER_KEY` | Yes* | — | 32-byte hex string for AES-256-GCM credential encryption (*or set `DNS_MASTER_KEY_FILE`) |
+| `DNS_MASTER_KEY_FILE` | Yes* | — | Path to file containing the 32-byte hex master key (*used if `DNS_MASTER_KEY` is unset; SEC-02) |
+| `DNS_JWT_SECRET` | Yes* | — | Secret for JWT signing (*or set `DNS_JWT_SECRET_FILE`) |
+| `DNS_JWT_SECRET_FILE` | Yes* | — | Path to file containing the JWT secret (*used if `DNS_JWT_SECRET` is unset; SEC-02) |
+| `DNS_JWT_ALGORITHM` | No | `HS256` | JWT signing algorithm; `HS256` now; `RS256`/`ES256` supported in future (SEC-03) |
 | `DNS_JWT_TTL_SECONDS` | No | `28800` | JWT expiry in seconds (default 8 hours) |
 | `DNS_HTTP_PORT` | No | `8080` | Port for the Restbed HTTP server |
 | `DNS_HTTP_THREADS` | No | `4` | Restbed worker thread count |
@@ -1028,6 +1152,7 @@ All configuration is provided via environment variables. No config files are req
 | `DNS_GIT_REMOTE_URL` | No | — | Git remote URL for GitOps mirror (disabled if unset) |
 | `DNS_GIT_LOCAL_PATH` | No | `/var/dns-orchestrator/repo` | Local path for Git mirror clone |
 | `DNS_GIT_SSH_KEY_PATH` | No | — | Path to SSH private key for Git push auth |
+| `DNS_GIT_KNOWN_HOSTS_FILE` | No | — | Path to known_hosts file for SSH host verification (future implementation; SEC-09) |
 | `DNS_OIDC_ISSUER` | No | — | OIDC issuer URL (enables OIDC if set) |
 | `DNS_OIDC_CLIENT_ID` | No | — | OIDC client ID |
 | `DNS_OIDC_CLIENT_SECRET` | No | — | OIDC client secret |
@@ -1041,6 +1166,9 @@ All configuration is provided via environment variables. No config files are req
 | `DNS_SAML_AUTO_PROVISION` | No | `false` | Auto-create users on first SAML login |
 | `DNS_TUI_API_KEY` | No | — | API key for TUI authentication; if unset, TUI reads `~/.config/dns-orchestrator/credentials` |
 | `DNS_AUDIT_STDOUT` | No | `false` | Mirror audit log entries to stdout (for Docker log collection) |
+| `DNS_AUDIT_RETENTION_DAYS` | No | `365` | Minimum age in days for audit records eligible for purge via `DELETE /audit/purge` (SEC-04) |
+| `DNS_TLS_CERT_FILE` | No | — | Path to PEM TLS certificate chain (future native TLS support; SEC-08) |
+| `DNS_TLS_KEY_FILE` | No | — | Path to PEM TLS private key (future native TLS support; SEC-08) |
 | `DNS_LOG_LEVEL` | No | `info` | Log level: `debug`, `info`, `warn`, `error` |
 
 ---
@@ -1335,13 +1463,171 @@ volumes:
 
 ```
 1. Load and validate all required environment variables (fail fast if missing)
+   - For DNS_MASTER_KEY: use env var if set, else read DNS_MASTER_KEY_FILE; fatal if neither set
+   - For DNS_JWT_SECRET: use env var if set, else read DNS_JWT_SECRET_FILE; fatal if neither set
+   - Zero raw secret strings from memory after loading (OPENSSL_cleanse)
 2. Initialize CryptoService with DNS_MASTER_KEY
-3. Initialize ConnectionPool (DNS_DB_URL, DNS_DB_POOL_SIZE)
-4. Run pending DB migrations (scripts/db/*.sql in order)
-5. Initialize GitOpsMirror (if DNS_GIT_REMOTE_URL is set): git clone or git pull
-6. Initialize ThreadPool (DNS_THREAD_POOL_SIZE workers)
-7. Initialize ProviderFactory
-8. Register all API routes on ApiServer
-9. Start Restbed HTTP server on DNS_HTTP_PORT
-10. Log "dns-orchestrator ready" to stdout
+3. Construct IJwtSigner based on DNS_JWT_ALGORITHM (default: HmacJwtSigner/HS256)
+4. Initialize ConnectionPool (DNS_DB_URL, DNS_DB_POOL_SIZE)
+5. Run pending DB migrations (scripts/db/*.sql in order)
+6. Initialize GitOpsMirror (if DNS_GIT_REMOTE_URL is set): git clone or git pull
+7. Initialize ThreadPool (DNS_THREAD_POOL_SIZE workers)
+8. Initialize SamlReplayCache (if SAML is enabled)
+9. Initialize ProviderFactory
+10. Register all API routes on ApiServer (with security headers middleware)
+11. Start Restbed HTTP server on DNS_HTTP_PORT
+12. Log "dns-orchestrator ready" to stdout
 ```
+
+---
+
+## 12. Security Hardening Reference
+
+This section documents operational security requirements and deployment constraints. See [`plans/SECURITY_PLAN.md`](plans/SECURITY_PLAN.md) for the full rationale behind each decision.
+
+### 12.1 Deployment Security Requirements
+
+> **These are hard requirements. Violating them creates critical security vulnerabilities.**
+
+| Requirement | Detail |
+|-------------|--------|
+| **TLS termination** | The application serves plain HTTP on `DNS_HTTP_PORT`. It MUST be deployed behind a TLS-terminating reverse proxy (nginx, Caddy, Traefik). Direct exposure of port 8080 to untrusted networks is prohibited. |
+| **HTTPS-only cookies** | The OIDC `oidc_state` cookie is set with `Secure` attribute. The reverse proxy must enforce HTTPS; HTTP access must redirect to HTTPS. |
+| **Non-root process** | The container runs as the `dns-orchestrator` system user (no-login, no home directory). Do not override `USER` in derived images. |
+| **Secret injection** | `DNS_MASTER_KEY` and `DNS_JWT_SECRET` must be injected via a secrets manager (HashiCorp Vault, AWS Secrets Manager, Kubernetes Secrets, Docker Secrets). Do not hardcode secrets in `docker-compose.yml` or environment files committed to version control. |
+| **Network isolation** | PostgreSQL must not be exposed to the public internet. Use Docker networks or Kubernetes NetworkPolicy to restrict DB access to the application container only. |
+
+**Future native TLS (not yet implemented):**
+When `DNS_TLS_CERT_FILE` and `DNS_TLS_KEY_FILE` are both set, a future implementation will configure Restbed's SSL context for direct TLS termination without a reverse proxy.
+
+---
+
+### 12.2 PostgreSQL Least-Privilege Roles
+
+Two PostgreSQL roles are required. The application uses `dns_app` for all normal operations; `dns_audit_admin` is used exclusively by the `DELETE /api/v1/audit/purge` endpoint.
+
+```sql
+-- Role 1: Application runtime user (dns_app)
+-- Used by DNS_DB_URL
+CREATE ROLE dns_app LOGIN PASSWORD '<strong-password>';
+GRANT CONNECT ON DATABASE dns_orchestrator TO dns_app;
+GRANT USAGE ON SCHEMA public TO dns_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dns_app;
+REVOKE DELETE ON audit_log FROM dns_app;   -- audit_log is insert-only for the app
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dns_app;
+
+-- Role 2: Audit purge user (dns_audit_admin)
+-- Used by DNS_AUDIT_DB_URL (only required if audit purge endpoint is used)
+CREATE ROLE dns_audit_admin LOGIN PASSWORD '<strong-password>';
+GRANT CONNECT ON DATABASE dns_orchestrator TO dns_audit_admin;
+GRANT USAGE ON SCHEMA public TO dns_audit_admin;
+GRANT SELECT, DELETE ON audit_log TO dns_audit_admin;
+```
+
+> **Note:** `dns_app` cannot delete audit log rows. Only `dns_audit_admin` can, and only via the authenticated `DELETE /api/v1/audit/purge` endpoint (admin role required). This provides a two-factor tamper barrier: database privilege + application RBAC.
+
+---
+
+### 12.3 Secret Management
+
+**Loading Priority (for `DNS_MASTER_KEY` and `DNS_JWT_SECRET`):**
+
+```
+1. If DNS_MASTER_KEY is set in environment → use it
+2. Else if DNS_MASTER_KEY_FILE is set → read file, trim whitespace, use contents
+3. Else → fatal startup error
+```
+
+**File-based secret requirements:**
+- File must be mode `0400` (owner read-only)
+- File contents are read once at startup; file descriptor is closed immediately after
+- Raw secret string is zeroed from memory via `OPENSSL_cleanse()` after loading into `CryptoService`
+
+**Recommended production pattern (Docker Secrets):**
+```yaml
+# docker-compose.yml (production)
+services:
+  app:
+    image: dns-orchestrator:latest
+    secrets:
+      - master_key
+      - jwt_secret
+    environment:
+      DNS_MASTER_KEY_FILE: /run/secrets/master_key
+      DNS_JWT_SECRET_FILE: /run/secrets/jwt_secret
+      DNS_DB_URL: postgresql://dns_app:<pass>@db:5432/dns_orchestrator
+
+secrets:
+  master_key:
+    external: true   # managed by Docker Swarm secrets or external vault
+  jwt_secret:
+    external: true
+```
+
+---
+
+### 12.4 Rate Limiting (Reverse Proxy)
+
+The application does not implement in-process rate limiting. The reverse proxy **must** enforce rate limits on authentication endpoints to prevent brute-force attacks.
+
+**nginx:**
+```nginx
+limit_req_zone $binary_remote_addr zone=dns_auth:10m rate=5r/m;
+
+server {
+    location /api/v1/auth/local/login {
+        limit_req zone=dns_auth burst=3 nodelay;
+        limit_req_status 429;
+        proxy_pass http://dns-orchestrator:8080;
+    }
+
+    location /api/v1/ {
+        proxy_pass http://dns-orchestrator:8080;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+**Caddy:**
+```caddy
+dns-orchestrator.example.com {
+    @auth_login path /api/v1/auth/local/login
+    rate_limit @auth_login 5r/m
+
+    reverse_proxy /api/v1/* dns-orchestrator:8080
+}
+```
+
+**Traefik:**
+```yaml
+middlewares:
+  auth-ratelimit:
+    rateLimit:
+      average: 5
+      period: 1m
+      burst: 3
+
+routers:
+  dns-auth:
+    rule: "Path(`/api/v1/auth/local/login`)"
+    middlewares:
+      - auth-ratelimit
+    service: dns-orchestrator
+```
+
+---
+
+### 12.5 Git Remote Security
+
+When `DNS_GIT_REMOTE_URL` is configured, the following security requirements apply:
+
+| Requirement | Detail |
+|-------------|--------|
+| **Deploy key scope** | The SSH key at `DNS_GIT_SSH_KEY_PATH` must be a repository-scoped deploy key, not a user key. It must have write access to exactly one repository. |
+| **Key permissions** | The SSH private key file must be mode `0400` (owner read-only). |
+| **Remote access** | The Git remote should be on an internal network or accessed via VPN where possible. |
+| **Host verification** | `DNS_GIT_KNOWN_HOSTS_FILE` is reserved for a future implementation of SSH host fingerprint verification via `libgit2` `certificate_check` callback. When implemented, connections to hosts not listed in the known_hosts file will be rejected. |
+| **Force-push** | The GitOps mirror uses force-push to resolve conflicts (DB state always wins). The remote repository should be configured to allow force-push only from the deploy key, and to protect the branch from deletion. |
+
+> **Multi-instance SAML note:** The `SamlReplayCache` is process-local (in-memory). If the application is deployed with multiple instances behind a load balancer, a shared external cache (e.g., Redis) must be used to prevent assertion replay across instances. This is a future enhancement; document in your deployment runbook if running multi-instance.
