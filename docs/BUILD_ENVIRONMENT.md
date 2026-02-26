@@ -67,6 +67,10 @@ paru -S --needed \
     nlohmann-json
 ```
 
+> **Note:** `postgresql` (the server) is not listed here because this guide assumes an
+> existing PostgreSQL 15+ instance is already running. Only the client library
+> (`postgresql-libs`) is required to build and link against `libpq`.
+
 ### What each package provides
 
 | Package | Provides | Used For |
@@ -115,36 +119,21 @@ paru -S restbed ftxui
 
 ## 5. PostgreSQL Setup
 
-The application requires a running **PostgreSQL 15+** instance for local development.
+The application requires **PostgreSQL 15+**. This section assumes you already have a
+PostgreSQL instance running and accessible. If you need to install PostgreSQL from scratch,
+see the [Arch Wiki — PostgreSQL](https://wiki.archlinux.org/title/PostgreSQL).
 
-### 5.1 Install PostgreSQL
+> **Version check:** Confirm your instance meets the minimum version requirement.
+> ```bash
+> psql --version
+> # Expected: psql (PostgreSQL) 15.x or higher
+> ```
 
-```bash
-paru -S postgresql
-```
+### 5.1 Create the Development Database and User
 
-### 5.2 Initialize the Database Cluster
+Connect to your existing instance and provision the application database and role.
 
-PostgreSQL on Arch requires manual cluster initialization before first use.
-
-```bash
-# Initialize the data directory as the postgres system user
-sudo -u postgres initdb --locale=en_US.UTF-8 -D /var/lib/postgres/data
-```
-
-### 5.3 Enable and Start the Service
-
-```bash
-sudo systemctl enable --now postgresql
-```
-
-Verify it is running:
-
-```bash
-sudo systemctl status postgresql
-```
-
-### 5.4 Create the Development Database and User
+**If your instance uses peer authentication (local socket):**
 
 ```bash
 sudo -u postgres psql <<'EOF'
@@ -154,7 +143,31 @@ GRANT ALL PRIVILEGES ON DATABASE dns_orchestrator TO dns;
 EOF
 ```
 
-### 5.5 Run Database Migrations
+**If your instance uses password authentication (TCP/IP):**
+
+```bash
+psql -h localhost -U postgres <<'EOF'
+CREATE USER dns WITH PASSWORD 'dns';
+CREATE DATABASE dns_orchestrator OWNER dns;
+GRANT ALL PRIVILEGES ON DATABASE dns_orchestrator TO dns;
+EOF
+```
+
+> **Existing user/database:** If the `dns` role or `dns_orchestrator` database already
+> exist from a previous setup, skip the relevant `CREATE` statements and ensure the role
+> has `ALL PRIVILEGES` on the database.
+
+### 5.2 Verify Connectivity
+
+Confirm the new role can connect before proceeding:
+
+```bash
+psql postgresql://dns:dns@localhost:5432/dns_orchestrator -c "SELECT version();"
+```
+
+A successful response confirms the connection string that goes into `DNS_DB_URL`.
+
+### 5.3 Run Database Migrations
 
 After building the project (see §7), apply the schema migrations in order:
 
@@ -310,7 +323,7 @@ Complete mapping of Dockerfile/Debian package names to their Arch/AUR equivalent
 | `librestbed-dev` | `restbed` | AUR | Restbed HTTP framework |
 | `nlohmann-json3-dev` | `nlohmann-json` | Official | Header-only JSON library |
 | `libftxui-dev` | `ftxui` | AUR | FTXUI terminal UI framework |
-| `postgresql` (runtime) | `postgresql` | Official | PostgreSQL 15+ server |
+| `postgresql` (runtime) | `postgresql` | Official | PostgreSQL 15+ server — **assumed pre-installed** |
 | `libpq5` (runtime) | `postgresql-libs` | Official | PostgreSQL runtime client library |
 | `libssl3` (runtime) | `openssl` | Official | OpenSSL 3.x runtime |
 | `libgit2-1.5` (runtime) | `libgit2` | Official | libgit2 runtime |
@@ -327,15 +340,16 @@ paru -Syu
 # 2. All dependencies in one shot
 paru -S --needed \
     base-devel git cmake ninja gcc \
-    postgresql postgresql-libs libpqxx \
+    postgresql-libs libpqxx \
     openssl libgit2 nlohmann-json \
     restbed ftxui
 
-# 3. Initialize PostgreSQL
-sudo -u postgres initdb --locale=en_US.UTF-8 -D /var/lib/postgres/data
-sudo systemctl enable --now postgresql
+# 3. Provision database on existing PostgreSQL 15+ instance
+# (adjust connection method if your instance uses TCP/IP auth instead of peer auth)
 sudo -u postgres psql -c "CREATE USER dns WITH PASSWORD 'dns';"
 sudo -u postgres psql -c "CREATE DATABASE dns_orchestrator OWNER dns;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE dns_orchestrator TO dns;"
+# Verify: psql postgresql://dns:dns@localhost:5432/dns_orchestrator -c "SELECT version();"
 
 # 4. Clone and initialize submodules
 git clone <repository-url> dns-orchestrator && cd dns-orchestrator
