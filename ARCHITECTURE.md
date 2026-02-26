@@ -122,7 +122,7 @@ Cross-cutting concerns (logging, error types, configuration) live in a `common/`
 - Parse and validate incoming HTTP requests
 - Authenticate requests via the Security Subsystem (JWT bearer token check)
 - Dispatch to Core Engine or DAL service methods
-- Serialize responses as JSON (`nlohmann/json`, 4-space indent)
+- Serialize responses as JSON (`nlohmann/json`, 2-space indent)
 - Return structured error responses (see §9)
 
 **Key Classes:**
