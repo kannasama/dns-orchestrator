@@ -195,22 +195,20 @@ If neither header is present, or validation fails, `AuthMiddleware` returns `401
 - Detect and reject circular references
 - Validate resolved types match the record type (e.g., `IPv4` for A records)
 
-**Algorithm — `expand(value, zone_id, visited)`:**
+**Algorithm — `expand(value, zone_id)`:**
 ```
 1. Scan value for pattern \{\{([A-Za-z0-9_]+)\}\}
 2. For each match token:
-   a. If token in visited → throw CyclicVariableError
-   b. Add token to visited
-   c. Look up in zone-scoped variables WHERE zone_id = ?
-   d. If not found, look up in global variables WHERE zone_id IS NULL
-   e. If not found → throw UnresolvedVariableError
-   f. Recursively call expand(resolved_value, zone_id, visited)
-   g. Replace placeholder with expanded result
+   a. Look up in zone-scoped variables WHERE zone_id = ?
+   b. If not found, look up in global variables WHERE zone_id IS NULL
+   c. If not found → throw UnresolvedVariableError
+   d. Replace placeholder with the literal resolved value (no further expansion)
 3. Return fully expanded string
 ```
 
+> **Note:** Variable values must be flat literals. A variable's value may not itself contain `{{var}}` placeholders. Nested variable expansion is not supported.
+
 **Limits:**
-- Max recursion depth: 10 (configurable via `DNS_VAR_MAX_DEPTH` env var)
 - Max variable name length: 64 characters
 
 **Key Methods:**
@@ -286,9 +284,8 @@ struct PreviewResult {
 **Snapshot Retention (`pruneOldSnapshots`):**
 ```
 1. Resolve retention_count:
-     - zones.deployment_retention if NOT NULL
-     - else DNS_DEPLOYMENT_RETENTION_COUNT env var (default: 10)
-     - if retention_count == 0: return immediately (unlimited)
+     - zones.deployment_retention if NOT NULL and >= 1
+     - else DNS_DEPLOYMENT_RETENTION_COUNT env var (default: 10, minimum: 1)
 2. DELETE FROM deployments
    WHERE zone_id = ?
      AND seq <= (
@@ -751,7 +748,7 @@ CREATE TABLE zones (
   id                   BIGSERIAL PRIMARY KEY,
   name                 TEXT NOT NULL,               -- e.g. "example.com"
   view_id              BIGINT NOT NULL REFERENCES views(id) ON DELETE RESTRICT,
-  deployment_retention INTEGER,                     -- NULL = use DNS_DEPLOYMENT_RETENTION_COUNT; 0 = unlimited
+  deployment_retention INTEGER,                     -- NULL = use DNS_DEPLOYMENT_RETENTION_COUNT; must be >= 1 if set
   created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (name, view_id)
 );
@@ -787,7 +784,8 @@ CREATE TABLE records (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Deployment history: immutable snapshot of the fully-expanded zone state at each successful push.
+-- Deployment history: snapshot of the fully-expanded zone state at each successful push.
+-- Older snapshots are pruned automatically per the retention policy (DNS_DEPLOYMENT_RETENTION_COUNT or zones.deployment_retention).
 -- Used for rollback (full zone or cherry-picked records) and drift comparison.
 CREATE TABLE deployments (
   id           BIGSERIAL PRIMARY KEY,
@@ -1111,21 +1109,14 @@ User
 record.value_template = "{{LB_VIP}}"
          │
          ▼
-VariableEngine::expand("{{LB_VIP}}", zone_id=42, visited={})
+VariableEngine::expand("{{LB_VIP}}", zone_id=42)
          │
          ├─ Tokenize → ["LB_VIP"]
-         ├─ visited.insert("LB_VIP")
          ├─ VariableRepository::findByName("LB_VIP", zone_id=42)
-         │     → found: value="{{DATACENTER_VIP}}", scope=zone
-         │
-         └─ Recurse: expand("{{DATACENTER_VIP}}", zone_id=42, visited={"LB_VIP"})
-                  ├─ Tokenize → ["DATACENTER_VIP"]
-                  ├─ visited.insert("DATACENTER_VIP")
-                  ├─ VariableRepository::findByName("DATACENTER_VIP", zone_id=42)
-                  │     → not found in zone scope
-                  ├─ VariableRepository::findByName("DATACENTER_VIP", zone_id=NULL)
-                  │     → found: value="203.0.113.10", scope=global
-                  └─ No more tokens → return "203.0.113.10"
+         │     → not found in zone scope
+         ├─ VariableRepository::findByName("LB_VIP", zone_id=NULL)
+         │     → found: value="203.0.113.10", scope=global
+         └─ Replace placeholder → "203.0.113.10"
          │
          └─ Final result: "203.0.113.10"
 ```
@@ -1229,7 +1220,6 @@ For sensitive secrets (`DNS_MASTER_KEY`, `DNS_JWT_SECRET`), a `_FILE` variant is
 | `DNS_HTTP_PORT` | No | `8080` | Port for the Restbed HTTP server |
 | `DNS_HTTP_THREADS` | No | `4` | Restbed worker thread count |
 | `DNS_THREAD_POOL_SIZE` | No | `hw_concurrency` | Core engine thread pool size |
-| `DNS_VAR_MAX_DEPTH` | No | `10` | Maximum variable expansion recursion depth |
 | `DNS_GIT_REMOTE_URL` | No | — | Git remote URL for GitOps mirror (disabled if unset) |
 | `DNS_GIT_LOCAL_PATH` | No | `/var/dns-orchestrator/repo` | Local path for Git mirror clone |
 | `DNS_GIT_SSH_KEY_PATH` | No | — | Path to SSH private key for Git push auth |
@@ -1248,7 +1238,7 @@ For sensitive secrets (`DNS_MASTER_KEY`, `DNS_JWT_SECRET`), a `_FILE` variant is
 | `DNS_TUI_API_KEY` | No | — | API key for TUI authentication; if unset, TUI reads `~/.config/dns-orchestrator/credentials` |
 | `DNS_AUDIT_STDOUT` | No | `false` | Mirror audit log entries to stdout (for Docker log collection) |
 | `DNS_AUDIT_RETENTION_DAYS` | No | `365` | Minimum age in days for audit records eligible for purge via `DELETE /audit/purge` (SEC-04) |
-| `DNS_DEPLOYMENT_RETENTION_COUNT` | No | `10` | Number of deployment snapshots to retain per zone. `0` = unlimited. Overridden per zone by `zones.deployment_retention`. |
+| `DNS_DEPLOYMENT_RETENTION_COUNT` | No | `10` | Number of deployment snapshots to retain per zone. Must be `>= 1`; a value of `0` is invalid and will cause a fatal startup error. Overridden per zone by `zones.deployment_retention`. |
 | `DNS_TLS_CERT_FILE` | No | — | Path to PEM TLS certificate chain (future native TLS support; SEC-08) |
 | `DNS_TLS_KEY_FILE` | No | — | Path to PEM TLS private key (future native TLS support; SEC-08) |
 | `DNS_LOG_LEVEL` | No | `info` | Log level: `debug`, `info`, `warn`, `error` |
@@ -1277,7 +1267,6 @@ struct NotFoundError        : AppError { /* 404 */ };
 struct ConflictError        : AppError { /* 409 */ };
 struct ProviderError        : AppError { /* 502 */ };
 struct UnresolvedVariableError : AppError { /* 422 */ };
-struct CyclicVariableError  : AppError { /* 422 */ };
 struct DeploymentLockedError : AppError { /* 409 */ };
 struct GitMirrorError       : AppError { /* 500, non-fatal: logged, push still succeeds */ };
 ```
@@ -1552,6 +1541,7 @@ volumes:
    - For DNS_MASTER_KEY: use env var if set, else read DNS_MASTER_KEY_FILE; fatal if neither set
    - For DNS_JWT_SECRET: use env var if set, else read DNS_JWT_SECRET_FILE; fatal if neither set
    - Zero raw secret strings from memory after loading (OPENSSL_cleanse)
+   - Validate DNS_DEPLOYMENT_RETENTION_COUNT >= 1; fatal if set to 0 or a negative value
 2. Initialize CryptoService with DNS_MASTER_KEY
 3. Construct IJwtSigner based on DNS_JWT_ALGORITHM (default: HmacJwtSigner/HS256)
 4. Initialize ConnectionPool (DNS_DB_URL, DNS_DB_POOL_SIZE)
