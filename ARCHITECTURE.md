@@ -10,31 +10,31 @@
 2. [System Context](#2-system-context)
 3. [Layer Decomposition](#3-layer-decomposition)
 4. [Component Descriptions](#4-component-descriptions)
-   - 4.1 [HTTP API Server Layer](#41-http-api-server-layer)
-   - 4.2 [Core Engine](#42-core-engine)
-   - 4.3 [Provider Abstraction Layer](#43-provider-abstraction-layer)
-   - 4.4 [Data Access Layer](#44-data-access-layer)
-   - 4.5 [GitOps Mirror Subsystem](#45-gitops-mirror-subsystem)
-   - 4.6 [Security Subsystem](#46-security-subsystem)
-   - 4.7 [TUI Layer](#47-tui-layer)
-   - 4.8 [Thread Pool and Concurrency Model](#48-thread-pool-and-concurrency-model)
+  - 4.1 [HTTP API Server Layer](#41-http-api-server-layer)
+  - 4.2 [Core Engine](#42-core-engine)
+  - 4.3 [Provider Abstraction Layer](#43-provider-abstraction-layer)
+  - 4.4 [Data Access Layer](#44-data-access-layer)
+  - 4.5 [GitOps Mirror Subsystem](#45-gitops-mirror-subsystem)
+  - 4.6 [Security Subsystem](#46-security-subsystem)
+  - 4.7 [TUI Layer](#47-tui-layer)
+  - 4.8 [Thread Pool and Concurrency Model](#48-thread-pool-and-concurrency-model)
 5. [PostgreSQL Schema](#5-postgresql-schema)
 6. [REST API Contract](#6-rest-api-contract)
 7. [Data Flow Diagrams](#7-data-flow-diagrams)
-   - 7.1 [Staging → Preview → Deploy Pipeline](#71-staging--preview--deploy-pipeline)
-   - 7.2 [Variable Expansion Flow](#72-variable-expansion-flow)
-   - 7.3 [GitOps Mirror Flow](#73-gitops-mirror-flow)
-   - 7.4 [Authentication Flow](#74-authentication-flow)
+  - 7.1 [Staging → Preview → Deploy Pipeline](#71-staging--preview--deploy-pipeline)
+  - 7.2 [Variable Expansion Flow](#72-variable-expansion-flow)
+  - 7.3 [GitOps Mirror Flow](#73-gitops-mirror-flow)
+  - 7.4 [Authentication Flow](#74-authentication-flow)
 8. [Configuration and Environment Variables](#8-configuration-and-environment-variables)
 9. [Error Taxonomy and Handling Strategy](#9-error-taxonomy-and-handling-strategy)
 10. [Directory and File Structure](#10-directory-and-file-structure)
 11. [Dockerfile and Deployment Model](#11-dockerfile-and-deployment-model)
 12. [Security Hardening Reference](#12-security-hardening-reference)
-    - 12.1 [Deployment Security Requirements](#121-deployment-security-requirements)
-    - 12.2 [PostgreSQL Least-Privilege Roles](#122-postgresql-least-privilege-roles)
-    - 12.3 [Secret Management](#123-secret-management)
-    - 12.4 [Rate Limiting (Reverse Proxy)](#124-rate-limiting-reverse-proxy)
-    - 12.5 [Git Remote Security](#125-git-remote-security)
+  - 12.1 [Deployment Security Requirements](#121-deployment-security-requirements)
+  - 12.2 [PostgreSQL Least-Privilege Roles](#122-postgresql-least-privilege-roles)
+  - 12.3 [Secret Management](#123-secret-management)
+  - 12.4 [Rate Limiting (Reverse Proxy)](#124-rate-limiting-reverse-proxy)
+  - 12.5 [Git Remote Security](#125-git-remote-security)
 
 ---
 
@@ -151,10 +151,10 @@ Cross-cutting concerns (logging, error types, configuration) live in a `common/`
 Every authenticated request carries a `RequestContext` struct injected by `AuthMiddleware`:
 ```cpp
 struct RequestContext {
-    int64_t     user_id;
-    std::string username;
-    std::string role;       // "admin" | "operator" | "viewer"
-    std::string auth_method; // "local" | "oidc" | "saml" | "api_key"
+  int64_t     user_id;
+  std::string username;
+  std::string role;       // "admin" | "operator" | "viewer"
+  std::string auth_method; // "local" | "oidc" | "saml" | "api_key"
 };
 ```
 
@@ -217,9 +217,9 @@ If neither header is present, or validation fails, `AuthMiddleware` returns `401
 ```cpp
 class VariableEngine {
 public:
-    std::string expand(const std::string& tmpl, int64_t zone_id) const;
-    bool        validate(const std::string& tmpl, int64_t zone_id) const;
-    std::vector<std::string> listDependencies(const std::string& tmpl) const;
+  std::string expand(const std::string& tmpl, int64_t zone_id) const;
+  bool        validate(const std::string& tmpl, int64_t zone_id) const;
+  std::vector<std::string> listDependencies(const std::string& tmpl) const;
 };
 ```
 
@@ -239,19 +239,19 @@ public:
 enum class DiffAction { Add, Update, Delete, Drift };
 
 struct RecordDiff {
-    DiffAction          action;
-    std::string         name;
-    std::string         type;
-    std::string         provider_value;   // empty if action == Add
-    std::string         source_value;     // empty if action == Drift
+  DiffAction          action;
+  std::string         name;
+  std::string         type;
+  std::string         provider_value;   // empty if action == Add
+  std::string         source_value;     // empty if action == Drift
 };
 
 struct PreviewResult {
-    int64_t                  zone_id;
-    std::string              zone_name;
-    std::vector<RecordDiff>  diffs;
-    bool                     has_drift;
-    std::chrono::system_clock::time_point generated_at;
+  int64_t                  zone_id;
+  std::string              zone_name;
+  std::vector<RecordDiff>  diffs;
+  bool                     has_drift;
+  std::chrono::system_clock::time_point generated_at;
 };
 ```
 
@@ -292,35 +292,35 @@ All DNS provider integrations implement the `IProvider` pure abstract interface.
 
 ```cpp
 struct DnsRecord {
-    std::string provider_record_id;  // opaque ID from provider
-    std::string name;                // FQDN
-    std::string type;                // A, AAAA, CNAME, MX, TXT, SRV, NS, PTR
-    uint32_t    ttl;
-    std::string value;               // fully expanded
-    int         priority;            // MX/SRV only, 0 otherwise
+  std::string provider_record_id;  // opaque ID from provider
+  std::string name;                // FQDN
+  std::string type;                // A, AAAA, CNAME, MX, TXT, SRV, NS, PTR
+  uint32_t    ttl;
+  std::string value;               // fully expanded
+  int         priority;            // MX/SRV only, 0 otherwise
 };
 
 enum class HealthStatus { Ok, Degraded, Unreachable };
 
 struct PushResult {
-    bool        success;
-    std::string provider_record_id;  // assigned by provider on create
-    std::string error_message;       // empty on success
+  bool        success;
+  std::string provider_record_id;  // assigned by provider on create
+  std::string error_message;       // empty on success
 };
 
 class IProvider {
 public:
-    virtual ~IProvider() = default;
+  virtual ~IProvider() = default;
 
-    virtual std::string              name()            const = 0;
-    virtual HealthStatus             testConnectivity()      = 0;
-    virtual std::vector<DnsRecord>   listRecords(const std::string& zone_name)  = 0;
-    virtual PushResult               createRecord(const std::string& zone_name,
-                                                  const DnsRecord& record)      = 0;
-    virtual PushResult               updateRecord(const std::string& zone_name,
-                                                  const DnsRecord& record)      = 0;
-    virtual bool                     deleteRecord(const std::string& zone_name,
-                                                  const std::string& provider_record_id) = 0;
+  virtual std::string              name()            const = 0;
+  virtual HealthStatus             testConnectivity()      = 0;
+  virtual std::vector<DnsRecord>   listRecords(const std::string& zone_name)  = 0;
+  virtual PushResult               createRecord(const std::string& zone_name,
+                                                const DnsRecord& record)      = 0;
+  virtual PushResult               updateRecord(const std::string& zone_name,
+                                                const DnsRecord& record)      = 0;
+  virtual bool                     deleteRecord(const std::string& zone_name,
+                                                const std::string& provider_record_id) = 0;
 };
 ```
 
@@ -337,9 +337,9 @@ public:
 // providers/ProviderFactory.hpp
 class ProviderFactory {
 public:
-    static std::unique_ptr<IProvider> create(const std::string& type,
-                                             const std::string& api_endpoint,
-                                             const std::string& decrypted_token);
+  static std::unique_ptr<IProvider> create(const std::string& type,
+                                           const std::string& api_endpoint,
+                                           const std::string& decrypted_token);
 };
 ```
 
@@ -410,12 +410,12 @@ The DAL exposes typed repository classes. Each repository owns its SQL and uses 
 ```cpp
 class GitOpsMirror {
 public:
-    void initialize(const std::string& remote_url, const std::string& local_path);
-    void commit(int64_t zone_id, const std::string& actor_identity);
-    void pull();   // called at startup to sync local clone
+  void initialize(const std::string& remote_url, const std::string& local_path);
+  void commit(int64_t zone_id, const std::string& actor_identity);
+  void pull();   // called at startup to sync local clone
 private:
-    void writeZoneSnapshot(int64_t zone_id);
-    void gitAddCommitPush(const std::string& message);
+  void writeZoneSnapshot(int64_t zone_id);
+  void gitAddCommitPush(const std::string& message);
 };
 ```
 
@@ -440,12 +440,12 @@ private:
 ```cpp
 class CryptoService {
 public:
-    std::string encrypt(const std::string& plaintext) const;
-    std::string decrypt(const std::string& ciphertext) const;
+  std::string encrypt(const std::string& plaintext) const;
+  std::string decrypt(const std::string& ciphertext) const;
 
-    // SEC-01: API key generation and hashing (SHA-512 via OpenSSL EVP_sha512)
-    static std::string generateApiKey();              // 32 random bytes → base64url (43 chars)
-    static std::string hashApiKey(const std::string& raw_key); // → hex-encoded SHA-512
+  // SEC-01: API key generation and hashing (SHA-512 via OpenSSL EVP_sha512)
+  static std::string generateApiKey();              // 32 random bytes → base64url (43 chars)
+  static std::string hashApiKey(const std::string& raw_key); // → hex-encoded SHA-512
 };
 ```
 
@@ -459,10 +459,10 @@ JWT signing is abstracted behind an interface to allow algorithm upgrades withou
 // security/IJwtSigner.hpp
 class IJwtSigner {
 public:
-    virtual ~IJwtSigner() = default;
-    virtual std::string      sign(const nlohmann::json& payload) const = 0;
-    virtual nlohmann::json   verify(const std::string& token)    const = 0;
-    // verify() throws AuthenticationError on invalid signature, expiry, or malformed token
+  virtual ~IJwtSigner() = default;
+  virtual std::string      sign(const nlohmann::json& payload) const = 0;
+  virtual nlohmann::json   verify(const std::string& token)    const = 0;
+  // verify() throws AuthenticationError on invalid signature, expiry, or malformed token
 };
 
 // Concrete implementations:
@@ -522,14 +522,14 @@ GET /auth/oidc/callback?code=...&state=...
 // security/SamlReplayCache.hpp
 class SamlReplayCache {
 public:
-    // Returns false if assertion_id was already seen (replay detected)
-    bool checkAndInsert(const std::string& assertion_id,
-                        std::chrono::system_clock::time_point not_on_or_after);
+  // Returns false if assertion_id was already seen (replay detected)
+  bool checkAndInsert(const std::string& assertion_id,
+                      std::chrono::system_clock::time_point not_on_or_after);
 private:
-    std::unordered_map<std::string,
-                       std::chrono::system_clock::time_point> cache_;
-    std::mutex mutex_;
-    void evictExpired();  // called on each insert; removes entries where not_on_or_after < now()
+  std::unordered_map<std::string,
+                     std::chrono::system_clock::time_point> cache_;
+  std::mutex mutex_;
+  void evictExpired();  // called on each insert; removes entries where not_on_or_after < now()
 };
 ```
 
@@ -693,142 +693,142 @@ CREATE TYPE auth_method     AS ENUM ('local', 'oidc', 'saml', 'api_key');
 ```sql
 -- Provider registry
 CREATE TABLE providers (
-    id              BIGSERIAL PRIMARY KEY,
-    name            TEXT NOT NULL UNIQUE,
-    type            provider_type NOT NULL,
-    api_endpoint    TEXT NOT NULL,
-    encrypted_token TEXT NOT NULL,          -- AES-256-GCM encrypted
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id              BIGSERIAL PRIMARY KEY,
+  name            TEXT NOT NULL UNIQUE,
+  type            provider_type NOT NULL,
+  api_endpoint    TEXT NOT NULL,
+  encrypted_token TEXT NOT NULL,          -- AES-256-GCM encrypted
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Split-horizon views
 CREATE TABLE views (
-    id          BIGSERIAL PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE,
-    description TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id          BIGSERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- View ↔ Provider mapping (M:N)
 CREATE TABLE view_providers (
-    view_id     BIGINT NOT NULL REFERENCES views(id) ON DELETE CASCADE,
-    provider_id BIGINT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-    PRIMARY KEY (view_id, provider_id)
+  view_id     BIGINT NOT NULL REFERENCES views(id) ON DELETE CASCADE,
+  provider_id BIGINT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+  PRIMARY KEY (view_id, provider_id)
 );
 
 -- DNS zones
 CREATE TABLE zones (
-    id         BIGSERIAL PRIMARY KEY,
-    name       TEXT NOT NULL,               -- e.g. "example.com"
-    view_id    BIGINT NOT NULL REFERENCES views(id) ON DELETE RESTRICT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (name, view_id)
+  id         BIGSERIAL PRIMARY KEY,
+  name       TEXT NOT NULL,               -- e.g. "example.com"
+  view_id    BIGINT NOT NULL REFERENCES views(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (name, view_id)
 );
 
 -- Variable registry
 CREATE TABLE variables (
-    id         BIGSERIAL PRIMARY KEY,
-    name       TEXT NOT NULL,
-    value      TEXT NOT NULL,
-    type       variable_type NOT NULL,
-    scope      variable_scope NOT NULL DEFAULT 'global',
-    zone_id    BIGINT REFERENCES zones(id) ON DELETE CASCADE,  -- NULL = global
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (name, zone_id),                 -- zone_id NULL treated as global namespace
-    CHECK (scope = 'global' AND zone_id IS NULL
-        OR scope = 'zone'   AND zone_id IS NOT NULL)
+  id         BIGSERIAL PRIMARY KEY,
+  name       TEXT NOT NULL,
+  value      TEXT NOT NULL,
+  type       variable_type NOT NULL,
+  scope      variable_scope NOT NULL DEFAULT 'global',
+  zone_id    BIGINT REFERENCES zones(id) ON DELETE CASCADE,  -- NULL = global
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (name, zone_id),                 -- zone_id NULL treated as global namespace
+  CHECK (scope = 'global' AND zone_id IS NULL
+      OR scope = 'zone'   AND zone_id IS NOT NULL)
 );
 
 -- DNS records (stores raw templates with {{var}} placeholders)
 CREATE TABLE records (
-    id             BIGSERIAL PRIMARY KEY,
-    zone_id        BIGINT NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
-    name           TEXT NOT NULL,           -- relative or FQDN
-    type           TEXT NOT NULL,           -- A, AAAA, CNAME, MX, TXT, SRV, NS, PTR
-    ttl            INTEGER NOT NULL DEFAULT 300,
-    value_template TEXT NOT NULL,           -- may contain {{var_name}} tokens
-    priority       INTEGER NOT NULL DEFAULT 0,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             BIGSERIAL PRIMARY KEY,
+  zone_id        BIGINT NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
+  name           TEXT NOT NULL,           -- relative or FQDN
+  type           TEXT NOT NULL,           -- A, AAAA, CNAME, MX, TXT, SRV, NS, PTR
+  ttl            INTEGER NOT NULL DEFAULT 300,
+  value_template TEXT NOT NULL,           -- may contain {{var_name}} tokens
+  priority       INTEGER NOT NULL DEFAULT 0,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Staging table for pending changes
 CREATE TABLE staging (
-    id             BIGSERIAL PRIMARY KEY,
-    record_id      BIGINT REFERENCES records(id) ON DELETE SET NULL,
-    zone_id        BIGINT NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
-    operation      staging_op NOT NULL,
-    new_value      TEXT,                    -- NULL for delete operations
-    submitted_by   BIGINT NOT NULL REFERENCES users(id),
-    submitted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             BIGSERIAL PRIMARY KEY,
+  record_id      BIGINT REFERENCES records(id) ON DELETE SET NULL,
+  zone_id        BIGINT NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
+  operation      staging_op NOT NULL,
+  new_value      TEXT,                    -- NULL for delete operations
+  submitted_by   BIGINT NOT NULL REFERENCES users(id),
+  submitted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Audit log (append-only; no updates or deletes)
 CREATE TABLE audit_log (
-    id            BIGSERIAL PRIMARY KEY,
-    entity_type   TEXT NOT NULL,            -- 'record', 'variable', 'provider', etc.
-    entity_id     BIGINT,
-    operation     TEXT NOT NULL,            -- 'create', 'update', 'delete', 'push', 'login'
-    old_value     JSONB,
-    new_value     JSONB,
-    variable_used TEXT,                     -- variable name if expansion was involved
-    identity      TEXT NOT NULL,            -- username or system
-    auth_method   auth_method,
-    ip_address    INET,
-    timestamp     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id            BIGSERIAL PRIMARY KEY,
+  entity_type   TEXT NOT NULL,            -- 'record', 'variable', 'provider', etc.
+  entity_id     BIGINT,
+  operation     TEXT NOT NULL,            -- 'create', 'update', 'delete', 'push', 'login'
+  old_value     JSONB,
+  new_value     JSONB,
+  variable_used TEXT,                     -- variable name if expansion was involved
+  identity      TEXT NOT NULL,            -- username or system
+  auth_method   auth_method,
+  ip_address    INET,
+  timestamp     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Users
 CREATE TABLE users (
-    id            BIGSERIAL PRIMARY KEY,
-    username      TEXT NOT NULL UNIQUE,
-    email         TEXT UNIQUE,
-    password_hash TEXT,                     -- NULL for SSO-only users
-    oidc_sub      TEXT UNIQUE,              -- NULL for local/SAML users
-    saml_name_id  TEXT UNIQUE,              -- NULL for local/OIDC users
-    auth_method   auth_method NOT NULL DEFAULT 'local',
-    is_active     BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id            BIGSERIAL PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE,
+  email         TEXT UNIQUE,
+  password_hash TEXT,                     -- NULL for SSO-only users
+  oidc_sub      TEXT UNIQUE,              -- NULL for local/SAML users
+  saml_name_id  TEXT UNIQUE,              -- NULL for local/OIDC users
+  auth_method   auth_method NOT NULL DEFAULT 'local',
+  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Groups
 CREATE TABLE groups (
-    id          BIGSERIAL PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE,
-    role        user_role NOT NULL,
-    description TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id          BIGSERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  role        user_role NOT NULL,
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- User ↔ Group membership (M:N)
 CREATE TABLE group_members (
-    user_id  BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    PRIMARY KEY (user_id, group_id)
+  user_id  BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, group_id)
 );
 
 -- Active sessions
 CREATE TABLE sessions (
-    id          BIGSERIAL PRIMARY KEY,
-    user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash  TEXT NOT NULL UNIQUE,       -- SHA-256 of JWT
-    expires_at  TIMESTAMPTZ NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    revoked     BOOLEAN NOT NULL DEFAULT FALSE
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash  TEXT NOT NULL UNIQUE,       -- SHA-256 of JWT
+  expires_at  TIMESTAMPTZ NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked     BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- API keys (used by TUI and automated clients; no session created)
 CREATE TABLE api_keys (
-    id          BIGSERIAL PRIMARY KEY,
-    user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    key_hash    TEXT NOT NULL UNIQUE,       -- SHA-512 of the raw key (SEC-01); raw key shown once at creation
-    description TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at  TIMESTAMPTZ,               -- NULL = never expires
-    revoked     BOOLEAN NOT NULL DEFAULT FALSE
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key_hash    TEXT NOT NULL UNIQUE,       -- SHA-512 of the raw key (SEC-01); raw key shown once at creation
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at  TIMESTAMPTZ,               -- NULL = never expires
+  revoked     BOOLEAN NOT NULL DEFAULT FALSE
 );
 ```
 
@@ -1182,9 +1182,9 @@ All application errors derive from a common base:
 ```cpp
 // common/Errors.hpp
 struct AppError : public std::runtime_error {
-    int         http_status;
-    std::string error_code;   // machine-readable slug
-    explicit AppError(int status, std::string code, std::string msg);
+  int         http_status;
+  std::string error_code;   // machine-readable slug
+  explicit AppError(int status, std::string code, std::string msg);
 };
 
 // Derived types
@@ -1378,26 +1378,26 @@ dns-orchestrator/
 FROM debian:bookworm-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    cmake ninja-build gcc-12 g++-12 \
-    libpqxx-dev libssl-dev libgit2-dev \
-    librestbed-dev nlohmann-json3-dev \
-    libftxui-dev \
-    && rm -rf /var/lib/apt/lists/*
+  cmake ninja-build gcc-12 g++-12 \
+  libpqxx-dev libssl-dev libgit2-dev \
+  librestbed-dev nlohmann-json3-dev \
+  libftxui-dev \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 COPY . .
 
 RUN cmake -B build -G Ninja \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_CXX_COMPILER=g++-12 \
-    && cmake --build build --parallel
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=g++-12 \
+  && cmake --build build --parallel
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 libssl3 libgit2-1.5 librestbed0 \
-    && rm -rf /var/lib/apt/lists/*
+  libpq5 libssl3 libgit2-1.5 librestbed0 \
+  && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --no-create-home dns-orchestrator
 
@@ -1575,27 +1575,27 @@ The application does not implement in-process rate limiting. The reverse proxy *
 limit_req_zone $binary_remote_addr zone=dns_auth:10m rate=5r/m;
 
 server {
-    location /api/v1/auth/local/login {
-        limit_req zone=dns_auth burst=3 nodelay;
-        limit_req_status 429;
-        proxy_pass http://dns-orchestrator:8080;
-    }
+  location /api/v1/auth/local/login {
+    limit_req zone=dns_auth burst=3 nodelay;
+    limit_req_status 429;
+    proxy_pass http://dns-orchestrator:8080;
+  }
 
-    location /api/v1/ {
-        proxy_pass http://dns-orchestrator:8080;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
+  location /api/v1/ {
+    proxy_pass http://dns-orchestrator:8080;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
 }
 ```
 
 **Caddy:**
 ```caddy
 dns-orchestrator.example.com {
-    @auth_login path /api/v1/auth/local/login
-    rate_limit @auth_login 5r/m
+  @auth_login path /api/v1/auth/local/login
+  rate_limit @auth_login 5r/m
 
-    reverse_proxy /api/v1/* dns-orchestrator:8080
+  reverse_proxy /api/v1/* dns-orchestrator:8080
 }
 ```
 

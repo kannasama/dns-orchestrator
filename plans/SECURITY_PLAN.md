@@ -11,18 +11,18 @@
 
 1. [Threat Model Summary](#1-threat-model-summary)
 2. [Findings and Decisions](#2-findings-and-decisions)
-   - [C-1 — API Key Hashing (SEC-01)](#c-1--api-key-hashing-sec-01)
-   - [C-2 — OIDC CSRF / Replay (SEC-06)](#c-2--oidc-csrf--replay-sec-06)
-   - [C-3 — SAML Assertion Replay (SEC-07)](#c-3--saml-assertion-replay-sec-07)
-   - [H-1 — Secret Management (SEC-02)](#h-1--secret-management-sec-02)
-   - [H-2 — TLS Termination (SEC-08)](#h-2--tls-termination-sec-08)
-   - [H-3 — Audit Log Retention (SEC-04 + SEC-05)](#h-3--audit-log-retention-sec-04--sec-05)
-   - [M-1 — JWT Algorithm Abstraction (SEC-03)](#m-1--jwt-algorithm-abstraction-sec-03)
-   - [M-2 — Security Response Headers (SEC-12)](#m-2--security-response-headers-sec-12)
-   - [M-3 — Input Size Limits (SEC-11)](#m-3--input-size-limits-sec-11)
-   - [M-4 — Git SSH Host Verification (SEC-09)](#m-4--git-ssh-host-verification-sec-09)
-   - [L-1 — Rate Limiting (SEC-10)](#l-1--rate-limiting-sec-10)
-   - [L-2 — PostgreSQL Least Privilege (SEC-13)](#l-2--postgresql-least-privilege-sec-13)
+  - [C-1 — API Key Hashing (SEC-01)](#c-1--api-key-hashing-sec-01)
+  - [C-2 — OIDC CSRF / Replay (SEC-06)](#c-2--oidc-csrf--replay-sec-06)
+  - [C-3 — SAML Assertion Replay (SEC-07)](#c-3--saml-assertion-replay-sec-07)
+  - [H-1 — Secret Management (SEC-02)](#h-1--secret-management-sec-02)
+  - [H-2 — TLS Termination (SEC-08)](#h-2--tls-termination-sec-08)
+  - [H-3 — Audit Log Retention (SEC-04 + SEC-05)](#h-3--audit-log-retention-sec-04--sec-05)
+  - [M-1 — JWT Algorithm Abstraction (SEC-03)](#m-1--jwt-algorithm-abstraction-sec-03)
+  - [M-2 — Security Response Headers (SEC-12)](#m-2--security-response-headers-sec-12)
+  - [M-3 — Input Size Limits (SEC-11)](#m-3--input-size-limits-sec-11)
+  - [M-4 — Git SSH Host Verification (SEC-09)](#m-4--git-ssh-host-verification-sec-09)
+  - [L-1 — Rate Limiting (SEC-10)](#l-1--rate-limiting-sec-10)
+  - [L-2 — PostgreSQL Least Privilege (SEC-13)](#l-2--postgresql-least-privilege-sec-13)
 3. [New Environment Variables](#3-new-environment-variables)
 4. [New API Endpoints](#4-new-api-endpoints)
 5. [Implementation Checklist](#5-implementation-checklist)
@@ -144,14 +144,14 @@ Implement an **in-memory assertion ID cache** with TTL-based eviction:
 // security/SamlReplayCache.hpp
 class SamlReplayCache {
 public:
-    // Returns false if assertion_id was already seen (replay detected)
-    bool checkAndInsert(const std::string& assertion_id,
-                        std::chrono::system_clock::time_point not_on_or_after);
+  // Returns false if assertion_id was already seen (replay detected)
+  bool checkAndInsert(const std::string& assertion_id,
+                      std::chrono::system_clock::time_point not_on_or_after);
 private:
-    std::unordered_map<std::string,
-                       std::chrono::system_clock::time_point> cache_;
-    std::mutex mutex_;
-    void evictExpired();  // called on each insert
+  std::unordered_map<std::string,
+                     std::chrono::system_clock::time_point> cache_;
+  std::mutex mutex_;
+  void evictExpired();  // called on each insert
 };
 ```
 
@@ -271,10 +271,10 @@ Introduce a `IJwtSigner` interface so the signing strategy is swappable:
 // security/IJwtSigner.hpp
 class IJwtSigner {
 public:
-    virtual ~IJwtSigner() = default;
-    virtual std::string sign(const nlohmann::json& payload) const = 0;
-    virtual nlohmann::json verify(const std::string& token)  const = 0;
-    // throws AuthenticationError on invalid/expired token
+  virtual ~IJwtSigner() = default;
+  virtual std::string sign(const nlohmann::json& payload) const = 0;
+  virtual nlohmann::json verify(const std::string& token)  const = 0;
+  // throws AuthenticationError on invalid/expired token
 };
 
 // Concrete implementations:
@@ -397,8 +397,8 @@ The reverse proxy MUST implement rate limiting on authentication endpoints. Refe
 ```nginx
 limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m;
 location /api/v1/auth/local/login {
-    limit_req zone=auth burst=3 nodelay;
-    proxy_pass http://dns-orchestrator:8080;
+  limit_req zone=auth burst=3 nodelay;
+  proxy_pass http://dns-orchestrator:8080;
 }
 ```
 
