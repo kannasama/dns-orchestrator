@@ -18,6 +18,7 @@
   - 4.6 [Security Subsystem](#46-security-subsystem)
   - 4.7 [TUI Layer](#47-tui-layer)
   - 4.8 [Thread Pool and Concurrency Model](#48-thread-pool-and-concurrency-model)
+  - 4.9 [Maintenance Scheduler](#49-maintenance-scheduler)
 5. [PostgreSQL Schema](#5-postgresql-schema)
 6. [REST API Contract](#6-rest-api-contract)
 7. [Data Flow Diagrams](#7-data-flow-diagrams)
@@ -168,18 +169,40 @@ struct RequestContext {
 Incoming request
   ├─ Has "Authorization: Bearer <token>"?
   │     ├─ Verify JWT signature (HS256, DNS_JWT_SECRET)
-  │     ├─ Check exp not exceeded
-  │     ├─ SessionRepository::isRevoked(SHA256(jwt))
+  │     ├─ Check exp not exceeded (JWT exp claim)
+  │     ├─ SessionRepository::exists(SHA256(jwt))
+  │     │     └─ If row absent → session was revoked or expired and deleted → 401 token_revoked
+  │     ├─ Check sessions.expires_at > NOW() (sliding window)
+  │     │     └─ If expired → SessionRepository::deleteByHash(SHA256(jwt)) → 401 token_expired
+  │     ├─ Check sessions.absolute_expires_at > NOW() (hard ceiling)
+  │     │     └─ If exceeded → SessionRepository::deleteByHash(SHA256(jwt)) → 401 token_expired
+  │     ├─ SessionRepository::touch(SHA256(jwt), DNS_JWT_TTL_SECONDS, DNS_SESSION_ABSOLUTE_TTL_SECONDS)
+  │     │     -- extends expires_at by DNS_JWT_TTL_SECONDS, clamped to absolute_expires_at
   │     └─ Inject RequestContext {auth_method="local"|"oidc"|"saml"}
   └─ Has "X-API-Key: <key>"?
         ├─ SHA-256 hash the raw key
         ├─ ApiKeyRepository::findByHash(hash)
-        ├─ Check revoked=false, expires_at > NOW() (or expires_at IS NULL)
+        │     └─ If not found → 401 invalid_api_key
+        ├─ Check revoked=false
+        │     └─ If revoked → 401 api_key_revoked
+        ├─ Check expires_at IS NULL OR expires_at > NOW()
+        │     └─ If expired → ApiKeyRepository::scheduleDelete(id, DNS_API_KEY_CLEANUP_GRACE_SECONDS)
+        │                   → 401 api_key_expired
         ├─ UserRepository::findById(user_id) → username + resolve role
         └─ Inject RequestContext {auth_method="api_key"}
 ```
 
 If neither header is present, or validation fails, `AuthMiddleware` returns `401 AuthenticationError`.
+
+**Session lifecycle events (immediate cleanup):**
+
+| Event | Action |
+|-------|--------|
+| Logout (`POST /auth/local/logout`) | `SessionRepository::deleteByHash(token_hash)` — hard DELETE; audit log records the logout |
+| Revocation (admin action) | `SessionRepository::deleteByHash(token_hash)` — hard DELETE; audit log records the revocation |
+| Sliding window expired (detected at next request) | `SessionRepository::deleteByHash(token_hash)` — hard DELETE; return 401 |
+| Absolute ceiling exceeded (detected at next request) | `SessionRepository::deleteByHash(token_hash)` — hard DELETE; return 401 |
+| Background flush | `SessionRepository::pruneExpired()` — catches sessions that expired with no subsequent request |
 
 ---
 
@@ -386,9 +409,10 @@ The DAL exposes typed repository classes. Each repository owns its SQL and uses 
 | `RecordRepository` | `dal/RecordRepository.hpp` | `records` table (raw templates); upsert for rollback restore |
 | `VariableRepository` | `dal/VariableRepository.hpp` | `variables` table |
 | `DeploymentRepository` | `dal/DeploymentRepository.hpp` | `deployments` table; snapshot create, get, list, prune |
-| `AuditRepository` | `dal/AuditRepository.hpp` | `audit_log` table (insert-only) |
+| `AuditRepository` | `dal/AuditRepository.hpp` | `audit_log` table; insert, bulk-insert, `purgeOld(retention_days)` |
 | `UserRepository` | `dal/UserRepository.hpp` | `users` + `groups` + `group_members` |
-| `SessionRepository` | `dal/SessionRepository.hpp` | `sessions` table |
+| `SessionRepository` | `dal/SessionRepository.hpp` | `sessions` table; `touch()`, `exists()`, `deleteByHash()`, `pruneExpired()` |
+| `ApiKeyRepository` | `dal/ApiKeyRepository.hpp` | `api_keys` table; `scheduleDelete()`, `pruneScheduled()` |
 
 **Connection Pool:**
 - `dal/ConnectionPool.hpp` — fixed-size pool of `pqxx::connection` objects
@@ -699,6 +723,78 @@ The TUI communicates with the same REST API as the Web GUI. It does not have dir
 | GitOps commit | Serialized globally via a single `std::mutex` on `GitOpsMirror` |
 | DB reads | Concurrent via connection pool |
 | DB writes | Serialized per-transaction by `libpqxx` |
+| Maintenance tasks | Serialized within the `MaintenanceScheduler` thread; never use the `ThreadPool` worker queue |
+
+---
+
+### 4.9 Maintenance Scheduler
+
+**Header:** `core/MaintenanceScheduler.hpp`
+
+**Responsibilities:**
+- Run periodic background tasks (audit purge, session flush, API key cleanup) on configurable intervals
+- Isolate maintenance I/O from the request-handling `ThreadPool` so that slow DB deletes never starve API workers
+- Provide independent fault isolation: a failing task is caught and logged without aborting other tasks or the scheduler loop
+
+**Design:**
+```cpp
+// core/MaintenanceScheduler.hpp
+class MaintenanceScheduler {
+public:
+  // Register a named task to run on the given interval.
+  // Must be called before start().
+  void schedule(const std::string& name,
+                std::chrono::seconds interval,
+                std::function<void()> task);
+
+  void start();  // launches the dedicated background std::jthread
+  void stop();   // signals the thread to exit; called during graceful shutdown
+private:
+  struct Task {
+    std::string                              name;
+    std::chrono::seconds                     interval;
+    std::function<void()>                    fn;
+    std::chrono::steady_clock::time_point    next_run;
+  };
+  std::vector<Task>        tasks_;
+  std::jthread             thread_;
+  std::mutex               mutex_;
+  std::condition_variable  cv_;
+};
+```
+
+**Scheduling Algorithm:**
+```
+loop:
+  now = steady_clock::now()
+  for each task in tasks_:
+    if now >= task.next_run:
+      try { task.fn() } catch (...) { log error; }
+      task.next_run = now + task.interval
+  sleep until min(task.next_run) across all tasks
+```
+
+**Registered Tasks (initialized at startup — see §11.4):**
+
+| Task | Method | Interval Env Var | Default | Condition |
+|------|--------|-----------------|---------|-----------|
+| Audit log purge | `AuditRepository::purgeOld(retention_days)` | `DNS_AUDIT_PURGE_INTERVAL_SECONDS` | `86400` (24 h) | Only registered if `DNS_AUDIT_DB_URL` is set |
+| Session flush | `SessionRepository::pruneExpired()` | `DNS_SESSION_CLEANUP_INTERVAL_SECONDS` | `3600` (1 h) | Always registered |
+| API key cleanup | `ApiKeyRepository::pruneScheduled()` | `DNS_API_KEY_CLEANUP_INTERVAL_SECONDS` | `3600` (1 h) | Always registered |
+
+**`AuditRepository::purgeOld()` result:**
+```cpp
+struct PurgeResult {
+  int64_t                                          deleted_count;
+  std::optional<std::chrono::system_clock::time_point> oldest_remaining;
+};
+PurgeResult purgeOld(int retention_days);
+```
+After each scheduled purge, a single `audit_log` entry is written by the system identity:
+```
+{ operation: "system_purge", identity: "system",
+  new_value: { deleted: N, oldest_remaining: "<timestamp>" } }
+```
 
 ---
 
@@ -844,41 +940,55 @@ CREATE TABLE group_members (
 );
 
 -- Active sessions
+-- expires_at:          sliding-window deadline; extended by DNS_JWT_TTL_SECONDS on each validated request
+-- absolute_expires_at: hard ceiling set at login (created_at + DNS_SESSION_ABSOLUTE_TTL_SECONDS); never extended
+-- last_seen_at:        updated on each validated request alongside expires_at
+-- No revoked flag: revocation and logout perform an immediate hard DELETE.
+--   The audit_log records the logout/revocation event for forensic purposes.
 CREATE TABLE sessions (
-  id          BIGSERIAL PRIMARY KEY,
-  user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token_hash  TEXT NOT NULL UNIQUE,       -- SHA-256 of JWT
-  expires_at  TIMESTAMPTZ NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  revoked     BOOLEAN NOT NULL DEFAULT FALSE
+  id                   BIGSERIAL PRIMARY KEY,
+  user_id              BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash           TEXT NOT NULL UNIQUE,       -- SHA-256 of JWT
+  expires_at           TIMESTAMPTZ NOT NULL,        -- sliding window; clamped to absolute_expires_at
+  absolute_expires_at  TIMESTAMPTZ NOT NULL,        -- hard ceiling; never extended after creation
+  last_seen_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- API keys (used by TUI and automated clients; no session created)
+-- delete_after: set to NOW() + DNS_API_KEY_CLEANUP_GRACE_SECONDS when a key is revoked or found expired.
+--   The background ApiKeyRepository::pruneScheduled() deletes rows where delete_after < NOW().
+--   NULL means the key is active.
 CREATE TABLE api_keys (
-  id          BIGSERIAL PRIMARY KEY,
-  user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  key_hash    TEXT NOT NULL UNIQUE,       -- SHA-512 of the raw key (SEC-01); raw key shown once at creation
-  description TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at  TIMESTAMPTZ,               -- NULL = never expires
-  revoked     BOOLEAN NOT NULL DEFAULT FALSE
+  id           BIGSERIAL PRIMARY KEY,
+  user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key_hash     TEXT NOT NULL UNIQUE,       -- SHA-512 of the raw key (SEC-01); raw key shown once at creation
+  description  TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at   TIMESTAMPTZ,               -- NULL = never expires
+  revoked      BOOLEAN NOT NULL DEFAULT FALSE,
+  delete_after TIMESTAMPTZ                -- NULL = active; set on revocation or expiry detection
 );
 ```
 
 ### 5.3 Indexes
 
 ```sql
-CREATE INDEX idx_records_zone_id            ON records(zone_id);
-CREATE UNIQUE INDEX idx_deployments_zone_seq ON deployments(zone_id, seq);
-CREATE INDEX idx_deployments_zone_id        ON deployments(zone_id);
-CREATE INDEX idx_deployments_deployed_at    ON deployments(deployed_at DESC);
-CREATE INDEX idx_variables_zone_id          ON variables(zone_id);
-CREATE INDEX idx_audit_log_timestamp        ON audit_log(timestamp DESC);
-CREATE INDEX idx_audit_log_entity           ON audit_log(entity_type, entity_id);
-CREATE INDEX idx_sessions_user_id           ON sessions(user_id);
-CREATE INDEX idx_sessions_expires_at        ON sessions(expires_at);
-CREATE INDEX idx_api_keys_key_hash          ON api_keys(key_hash);
-CREATE INDEX idx_api_keys_user_id           ON api_keys(user_id);
+CREATE INDEX idx_records_zone_id                ON records(zone_id);
+CREATE UNIQUE INDEX idx_deployments_zone_seq     ON deployments(zone_id, seq);
+CREATE INDEX idx_deployments_zone_id            ON deployments(zone_id);
+CREATE INDEX idx_deployments_deployed_at        ON deployments(deployed_at DESC);
+CREATE INDEX idx_variables_zone_id              ON variables(zone_id);
+CREATE INDEX idx_audit_log_timestamp            ON audit_log(timestamp DESC);
+CREATE INDEX idx_audit_log_entity               ON audit_log(entity_type, entity_id);
+CREATE INDEX idx_sessions_user_id               ON sessions(user_id);
+CREATE INDEX idx_sessions_expires_at            ON sessions(expires_at);
+CREATE INDEX idx_sessions_absolute_expires_at   ON sessions(absolute_expires_at);
+CREATE INDEX idx_api_keys_key_hash              ON api_keys(key_hash);
+CREATE INDEX idx_api_keys_user_id               ON api_keys(user_id);
+-- Partial index: only indexes rows pending deletion; keeps the index small
+CREATE INDEX idx_api_keys_delete_after          ON api_keys(delete_after)
+  WHERE delete_after IS NOT NULL;
 ```
 
 ### 5.4 Migrations
@@ -1238,6 +1348,11 @@ For sensitive secrets (`DNS_MASTER_KEY`, `DNS_JWT_SECRET`), a `_FILE` variant is
 | `DNS_TUI_API_KEY` | No | — | API key for TUI authentication; if unset, TUI reads `~/.config/dns-orchestrator/credentials` |
 | `DNS_AUDIT_STDOUT` | No | `false` | Mirror audit log entries to stdout (for Docker log collection) |
 | `DNS_AUDIT_RETENTION_DAYS` | No | `365` | Minimum age in days for audit records eligible for purge via `DELETE /audit/purge` (SEC-04) |
+| `DNS_AUDIT_PURGE_INTERVAL_SECONDS` | No | `86400` | How often `MaintenanceScheduler` runs the automatic audit log purge. Only active if `DNS_AUDIT_DB_URL` is set. Set to `0` to disable scheduled purge entirely. |
+| `DNS_SESSION_ABSOLUTE_TTL_SECONDS` | No | `86400` | Hard ceiling for any session (24 h). Set at login; never extended by activity. Forces re-login after this duration regardless of the sliding window. Must be `>= DNS_JWT_TTL_SECONDS`. |
+| `DNS_SESSION_CLEANUP_INTERVAL_SECONDS` | No | `3600` | How often `MaintenanceScheduler` flushes expired sessions from the `sessions` table. |
+| `DNS_API_KEY_CLEANUP_GRACE_SECONDS` | No | `300` | Grace period (in seconds) after a key is revoked or found expired before its row becomes eligible for deletion. Allows in-flight requests using that key to receive a proper 401 rather than a "key not found" error. |
+| `DNS_API_KEY_CLEANUP_INTERVAL_SECONDS` | No | `3600` | How often `MaintenanceScheduler` deletes API key rows whose `delete_after` timestamp has passed. |
 | `DNS_DEPLOYMENT_RETENTION_COUNT` | No | `10` | Number of deployment snapshots to retain per zone. Must be `>= 1`; a value of `0` is invalid and will cause a fatal startup error. Overridden per zone by `zones.deployment_retention`. |
 | `DNS_TLS_CERT_FILE` | No | — | Path to PEM TLS certificate chain (future native TLS support; SEC-08) |
 | `DNS_TLS_KEY_FILE` | No | — | Path to PEM TLS private key (future native TLS support; SEC-08) |
@@ -1542,12 +1657,20 @@ volumes:
    - For DNS_JWT_SECRET: use env var if set, else read DNS_JWT_SECRET_FILE; fatal if neither set
    - Zero raw secret strings from memory after loading (OPENSSL_cleanse)
    - Validate DNS_DEPLOYMENT_RETENTION_COUNT >= 1; fatal if set to 0 or a negative value
+   - Validate DNS_SESSION_ABSOLUTE_TTL_SECONDS >= DNS_JWT_TTL_SECONDS; fatal if not
 2. Initialize CryptoService with DNS_MASTER_KEY
 3. Construct IJwtSigner based on DNS_JWT_ALGORITHM (default: HmacJwtSigner/HS256)
 4. Initialize ConnectionPool (DNS_DB_URL, DNS_DB_POOL_SIZE)
 5. Run pending DB migrations (scripts/db/*.sql in order)
 6. Initialize GitOpsMirror (if DNS_GIT_REMOTE_URL is set): git clone or git pull
 7. Initialize ThreadPool (DNS_THREAD_POOL_SIZE workers)
+7a. Initialize MaintenanceScheduler (see §4.9):
+    - Register SessionRepository::pruneExpired()   every DNS_SESSION_CLEANUP_INTERVAL_SECONDS
+    - Register ApiKeyRepository::pruneScheduled()  every DNS_API_KEY_CLEANUP_INTERVAL_SECONDS
+    - Register AuditRepository::purgeOld(DNS_AUDIT_RETENTION_DAYS)
+        every DNS_AUDIT_PURGE_INTERVAL_SECONDS
+        (only if DNS_AUDIT_DB_URL is set; log startup warning if unset)
+    - Start MaintenanceScheduler background thread
 8. Initialize SamlReplayCache (if SAML is enabled)
 9. Initialize ProviderFactory
 10. Register all API routes on ApiServer (with security headers middleware)
