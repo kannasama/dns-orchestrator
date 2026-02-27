@@ -21,7 +21,7 @@
 5. [PostgreSQL Schema](#5-postgresql-schema)
 6. [REST API Contract](#6-rest-api-contract)
 7. [Data Flow Diagrams](#7-data-flow-diagrams)
-  - 7.1 [Staging → Preview → Deploy Pipeline](#71-staging--preview--deploy-pipeline)
+  - 7.1 [Edit → Preview → Deploy → Rollback Pipeline](#71-edit--preview--deploy--rollback-pipeline)
   - 7.2 [Variable Expansion Flow](#72-variable-expansion-flow)
   - 7.3 [GitOps Mirror Flow](#73-gitops-mirror-flow)
   - 7.4 [Authentication Flow](#74-authentication-flow)
@@ -139,9 +139,9 @@ Cross-cutting concerns (logging, error types, configuration) live in a `common/`
 | `ProviderRoutes` | `api/routes/ProviderRoutes.hpp` | Handlers for `/api/v1/providers` |
 | `ViewRoutes` | `api/routes/ViewRoutes.hpp` | Handlers for `/api/v1/views` |
 | `ZoneRoutes` | `api/routes/ZoneRoutes.hpp` | Handlers for `/api/v1/zones` |
-| `RecordRoutes` | `api/routes/RecordRoutes.hpp` | Handlers for `/api/v1/zones/{id}/records` |
+| `RecordRoutes` | `api/routes/RecordRoutes.hpp` | Handlers for `/api/v1/zones/{id}/records` and preview/push |
 | `VariableRoutes` | `api/routes/VariableRoutes.hpp` | Handlers for `/api/v1/variables` |
-| `StagingRoutes` | `api/routes/StagingRoutes.hpp` | Handlers for `/api/v1/staging` |
+| `DeploymentRoutes` | `api/routes/DeploymentRoutes.hpp` | Handlers for `/api/v1/zones/{id}/deployments` and rollback |
 | `AuthRoutes` | `api/routes/AuthRoutes.hpp` | Handlers for `/api/v1/auth` |
 | `AuditRoutes` | `api/routes/AuditRoutes.hpp` | Handlers for `/api/v1/audit` |
 | `HealthRoutes` | `api/routes/HealthRoutes.hpp` | Handler for `/api/v1/health` |
@@ -277,9 +277,39 @@ struct PreviewResult {
    d. Drift  → IProvider::deleteRecord() if purge_drift == true
 4. On any provider error → rollback attempted changes, release mutex, throw
 5. Write audit log entries (bulk insert)
-6. Trigger GitOpsMirror::commit(zone_id)
-7. Release per-zone mutex
-8. Clear staging entries for this zone
+6. DeploymentRepository::create(zone_id, expanded_snapshot, actor)
+7. DeploymentRepository::pruneOldSnapshots(zone_id)
+8. Trigger GitOpsMirror::commit(zone_id)
+9. Release per-zone mutex
+```
+
+**Snapshot Retention (`pruneOldSnapshots`):**
+```
+1. Resolve retention_count:
+     - zones.deployment_retention if NOT NULL
+     - else DNS_DEPLOYMENT_RETENTION_COUNT env var (default: 10)
+     - if retention_count == 0: return immediately (unlimited)
+2. DELETE FROM deployments
+   WHERE zone_id = ?
+     AND seq <= (
+       SELECT seq FROM deployments
+       WHERE zone_id = ?
+       ORDER BY seq DESC
+       OFFSET retention_count - 1
+       LIMIT 1
+     )
+```
+
+**Rollback Sequence (`RollbackEngine::apply`):**
+```
+1. DeploymentRepository::get(deployment_id) → snapshot JSONB
+2. If cherry_pick_ids is empty:
+     For each record in snapshot → RecordRepository::upsert(record)
+   If cherry_pick_ids is non-empty:
+     For each record_id in cherry_pick_ids:
+       Find record in snapshot → RecordRepository::upsert(record)
+3. AuditRepository::insert(operation='rollback', entity_id=deployment_id, actor)
+4. Return: desired state updated; operator must preview and push to deploy
 ```
 
 ---
@@ -356,9 +386,9 @@ The DAL exposes typed repository classes. Each repository owns its SQL and uses 
 | `ProviderRepository` | `dal/ProviderRepository.hpp` | `providers` table; decrypts tokens on read |
 | `ViewRepository` | `dal/ViewRepository.hpp` | `views` + `view_providers` join table |
 | `ZoneRepository` | `dal/ZoneRepository.hpp` | `zones` table |
-| `RecordRepository` | `dal/RecordRepository.hpp` | `records` table (raw templates) |
+| `RecordRepository` | `dal/RecordRepository.hpp` | `records` table (raw templates); upsert for rollback restore |
 | `VariableRepository` | `dal/VariableRepository.hpp` | `variables` table |
-| `StagingRepository` | `dal/StagingRepository.hpp` | `staging` table |
+| `DeploymentRepository` | `dal/DeploymentRepository.hpp` | `deployments` table; snapshot create, get, list, prune |
 | `AuditRepository` | `dal/AuditRepository.hpp` | `audit_log` table (insert-only) |
 | `UserRepository` | `dal/UserRepository.hpp` | `users` + `groups` + `group_members` |
 | `SessionRepository` | `dal/SessionRepository.hpp` | `sessions` table |
@@ -622,17 +652,17 @@ The TUI uses API key authentication exclusively. There is no interactive login s
 **Screen Hierarchy:**
 ```
 TuiApp
-├── (ApiKeyConfig)       ← startup only: loads key, calls GET /auth/me, exits on failure
+├── (ApiKeyConfig)            ← startup only: loads key, calls GET /auth/me, exits on failure
 ├── MainScreen
-│   ├── ViewSwitcher     ← keystroke: Tab cycles through views
-│   ├── ZoneListPane     ← left panel: zones in current view
-│   ├── RecordTablePane  ← right panel: records for selected zone
-│   │   ├── RecordEditModal   ← inline edit with Vim bindings (hjkl, i, Esc)
-│   │   └── VariablePickerModal ← autocomplete for {{var}} insertion
-│   ├── StagingPane      ← bottom panel: pending staged changes
-│   ├── PreviewScreen    ← full-screen diff view before push
-│   └── StatusBar        ← current view, zone, user, last sync time
-└── AuditLogScreen       ← scrollable audit log viewer
+│   ├── ViewSwitcher          ← keystroke: Tab cycles through views
+│   ├── ZoneListPane          ← left panel: zones in current view
+│   ├── RecordTablePane       ← right panel: records for selected zone (desired state)
+│   │   ├── RecordEditModal        ← inline edit with Vim bindings (hjkl, i, Esc)
+│   │   └── VariablePickerModal    ← autocomplete for {{var}} insertion
+│   ├── DeploymentHistoryPane ← bottom panel: deployment snapshots for current zone
+│   ├── PreviewScreen         ← full-screen diff view (desired state vs. live provider)
+│   └── StatusBar             ← current view, zone, user, last sync time
+└── AuditLogScreen            ← scrollable audit log viewer
 ```
 
 **Key Bindings:**
@@ -643,9 +673,9 @@ TuiApp
 | `j` / `k` | Navigate records up/down |
 | `i` | Enter edit mode on selected record |
 | `Esc` | Cancel edit / close modal |
-| `p` | Open preview diff for current zone |
-| `P` | Push staged changes for current zone |
-| `s` | Stage current edit |
+| `p` | Open preview diff for current zone (desired state vs. live provider) |
+| `P` | Push desired state for current zone to provider |
+| `r` | Open deployment history for current zone |
 | `?` | Show help overlay |
 | `q` | Quit |
 
@@ -683,7 +713,6 @@ The TUI communicates with the same REST API as the Web GUI. It does not have dir
 CREATE TYPE provider_type   AS ENUM ('powerdns', 'cloudflare', 'digitalocean');
 CREATE TYPE variable_type   AS ENUM ('ipv4', 'ipv6', 'target', 'string');
 CREATE TYPE variable_scope  AS ENUM ('global', 'zone');
-CREATE TYPE staging_op      AS ENUM ('create', 'update', 'delete');
 CREATE TYPE user_role       AS ENUM ('admin', 'operator', 'viewer');
 CREATE TYPE auth_method     AS ENUM ('local', 'oidc', 'saml', 'api_key');
 ```
@@ -719,10 +748,11 @@ CREATE TABLE view_providers (
 
 -- DNS zones
 CREATE TABLE zones (
-  id         BIGSERIAL PRIMARY KEY,
-  name       TEXT NOT NULL,               -- e.g. "example.com"
-  view_id    BIGINT NOT NULL REFERENCES views(id) ON DELETE RESTRICT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  id                   BIGSERIAL PRIMARY KEY,
+  name                 TEXT NOT NULL,               -- e.g. "example.com"
+  view_id              BIGINT NOT NULL REFERENCES views(id) ON DELETE RESTRICT,
+  deployment_retention INTEGER,                     -- NULL = use DNS_DEPLOYMENT_RETENTION_COUNT; 0 = unlimited
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (name, view_id)
 );
 
@@ -742,6 +772,8 @@ CREATE TABLE variables (
 );
 
 -- DNS records (stores raw templates with {{var}} placeholders)
+-- This table is the authoritative desired state for each zone.
+-- Records are written immediately on operator edit; no staging intermediary.
 CREATE TABLE records (
   id             BIGSERIAL PRIMARY KEY,
   zone_id        BIGINT NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
@@ -750,19 +782,22 @@ CREATE TABLE records (
   ttl            INTEGER NOT NULL DEFAULT 300,
   value_template TEXT NOT NULL,           -- may contain {{var_name}} tokens
   priority       INTEGER NOT NULL DEFAULT 0,
+  last_audit_id  BIGINT REFERENCES audit_log(id),  -- links to the audit entry that produced this state
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Staging table for pending changes
-CREATE TABLE staging (
-  id             BIGSERIAL PRIMARY KEY,
-  record_id      BIGINT REFERENCES records(id) ON DELETE SET NULL,
-  zone_id        BIGINT NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
-  operation      staging_op NOT NULL,
-  new_value      TEXT,                    -- NULL for delete operations
-  submitted_by   BIGINT NOT NULL REFERENCES users(id),
-  submitted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- Deployment history: immutable snapshot of the fully-expanded zone state at each successful push.
+-- Used for rollback (full zone or cherry-picked records) and drift comparison.
+CREATE TABLE deployments (
+  id           BIGSERIAL PRIMARY KEY,
+  zone_id      BIGINT NOT NULL REFERENCES zones(id) ON DELETE CASCADE,
+  deployed_by  BIGINT NOT NULL REFERENCES users(id),
+  deployed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Monotonically increasing sequence per zone; used for retention pruning
+  seq          BIGINT NOT NULL,
+  -- Full expanded zone snapshot at push time (array of fully-resolved records)
+  snapshot     JSONB NOT NULL
 );
 
 -- Audit log (append-only; no updates or deletes)
@@ -835,15 +870,17 @@ CREATE TABLE api_keys (
 ### 5.3 Indexes
 
 ```sql
-CREATE INDEX idx_records_zone_id       ON records(zone_id);
-CREATE INDEX idx_staging_zone_id       ON staging(zone_id);
-CREATE INDEX idx_variables_zone_id     ON variables(zone_id);
-CREATE INDEX idx_audit_log_timestamp   ON audit_log(timestamp DESC);
-CREATE INDEX idx_audit_log_entity      ON audit_log(entity_type, entity_id);
-CREATE INDEX idx_sessions_user_id      ON sessions(user_id);
-CREATE INDEX idx_sessions_expires_at   ON sessions(expires_at);
-CREATE INDEX idx_api_keys_key_hash     ON api_keys(key_hash);
-CREATE INDEX idx_api_keys_user_id      ON api_keys(user_id);
+CREATE INDEX idx_records_zone_id            ON records(zone_id);
+CREATE UNIQUE INDEX idx_deployments_zone_seq ON deployments(zone_id, seq);
+CREATE INDEX idx_deployments_zone_id        ON deployments(zone_id);
+CREATE INDEX idx_deployments_deployed_at    ON deployments(deployed_at DESC);
+CREATE INDEX idx_variables_zone_id          ON variables(zone_id);
+CREATE INDEX idx_audit_log_timestamp        ON audit_log(timestamp DESC);
+CREATE INDEX idx_audit_log_entity           ON audit_log(entity_type, entity_id);
+CREATE INDEX idx_sessions_user_id           ON sessions(user_id);
+CREATE INDEX idx_sessions_expires_at        ON sessions(expires_at);
+CREATE INDEX idx_api_keys_key_hash          ON api_keys(key_hash);
+CREATE INDEX idx_api_keys_user_id           ON api_keys(user_id);
 ```
 
 ### 5.4 Migrations
@@ -918,10 +955,12 @@ scripts/db/
 | Method | Path | Role Required | Description |
 |--------|------|---------------|-------------|
 | `GET`    | `/zones/{id}/records` | viewer | List all records for a zone |
-| `POST`   | `/zones/{id}/records` | operator | Create a record |
+| `POST`   | `/zones/{id}/records` | operator | Create a record (immediately becomes desired state) |
 | `GET`    | `/zones/{id}/records/{rid}` | viewer | Get record by ID |
-| `PUT`    | `/zones/{id}/records/{rid}` | operator | Update a record |
-| `DELETE` | `/zones/{id}/records/{rid}` | operator | Delete a record |
+| `PUT`    | `/zones/{id}/records/{rid}` | operator | Update a record (immediately becomes desired state) |
+| `DELETE` | `/zones/{id}/records/{rid}` | operator | Delete a record (immediately removed from desired state) |
+| `POST`   | `/zones/{id}/preview` | viewer | Run diff preview for a zone; compares desired state vs. live provider; returns `PreviewResult` |
+| `POST`   | `/zones/{id}/push` | operator | Execute deployment for a zone; pushes desired state to provider and creates a deployment snapshot |
 
 ### 6.6 Variables
 
@@ -933,16 +972,16 @@ scripts/db/
 | `PUT`    | `/variables/{id}` | operator | Update a variable |
 | `DELETE` | `/variables/{id}` | operator | Delete a variable |
 
-### 6.7 Staging and Deployment
+### 6.7 Deployment History and Rollback
 
 | Method | Path | Role Required | Description |
 |--------|------|---------------|-------------|
-| `GET`    | `/staging` | viewer | List all staged changes (filterable by `?zone_id=`) |
-| `DELETE` | `/staging/{id}` | operator | Discard a staged change |
-| `POST`   | `/staging/preview/{zone_id}` | viewer | Run diff preview for a zone; returns `PreviewResult` |
-| `POST`   | `/staging/push/{zone_id}` | operator | Execute deployment for a zone |
+| `GET`    | `/zones/{id}/deployments` | viewer | List deployment history for a zone (ordered by `seq DESC`) |
+| `GET`    | `/zones/{id}/deployments/{did}` | viewer | Get a specific deployment snapshot |
+| `GET`    | `/zones/{id}/deployments/{did}/diff` | viewer | Diff snapshot vs. current desired state in `records`; returns `PreviewResult` |
+| `POST`   | `/zones/{id}/deployments/{did}/rollback` | operator | Restore snapshot into `records` (full zone or cherry-picked records); does not push automatically |
 
-**Preview Response Shape:**
+**Preview Response Shape** (returned by `POST /zones/{id}/preview` and `GET /zones/{id}/deployments/{did}/diff`):
 ```json
 {
   "zone_id": 42,
@@ -960,6 +999,36 @@ scripts/db/
   ]
 }
 ```
+
+**Rollback Request Body:**
+```json
+{
+  "cherry_pick_ids": [42, 57]
+}
+```
+Omit `cherry_pick_ids` (or pass an empty array) to restore the full zone snapshot. Rollback only updates the `records` table (desired state); the operator must run `POST /zones/{id}/preview` and `POST /zones/{id}/push` to deploy the restored state.
+
+**Deployment Snapshot Shape** (stored in `deployments.snapshot` JSONB):
+```json
+{
+  "zone": "example.com",
+  "view": "external",
+  "provider": "cloudflare",
+  "deployed_at": "2026-02-27T01:00:00Z",
+  "deployed_by": "alice",
+  "records": [
+    {
+      "record_id": 42,
+      "name": "www.example.com.",
+      "type": "A",
+      "ttl": 300,
+      "value": "203.0.113.10",
+      "priority": 0
+    }
+  ]
+}
+```
+Note: `value` in the snapshot is the **fully expanded** value (all variables resolved), not the raw template.
 
 ### 6.8 Users and Groups
 
@@ -997,31 +1066,43 @@ scripts/db/
 
 ## 7. Data Flow Diagrams
 
-### 7.1 Staging → Preview → Deploy Pipeline
+### 7.1 Edit → Preview → Deploy → Rollback Pipeline
 
 ```
 User
  │
  ├─[1] PUT /zones/{id}/records/{rid}  (operator)
- │      └─ RecordRepository::update() → writes value_template to records table
- │         └─ StagingRepository::create() → writes to staging table
+ │      └─ Single transaction:
+ │           ├─ AuditRepository::insert(old_value, new_value, actor) → audit_id
+ │           └─ RecordRepository::update(value_template, last_audit_id=audit_id)
+ │              records table is now the desired state; no staging write
  │
- ├─[2] POST /staging/preview/{zone_id}  (viewer)
+ ├─[2] POST /zones/{id}/preview  (viewer)
  │      └─ DiffEngine::preview(zone_id)
- │           ├─ DAL: fetch staged records for zone
- │           ├─ VariableEngine::expand() for each staged record
+ │           ├─ RecordRepository::listByZone(zone_id) → desired state (raw templates)
+ │           ├─ VariableEngine::expand() for each record
  │           ├─ IProvider::listRecords(zone_name) → live state from provider
  │           └─ Compute diff → return PreviewResult
  │
- └─[3] POST /staging/push/{zone_id}  (operator)
-        └─ DeploymentEngine::push(zone_id, purge_drift)
-             ├─ Acquire per-zone mutex
-             ├─ Re-run DiffEngine::preview() (freshness guard)
-             ├─ For each diff: IProvider::createRecord / updateRecord / deleteRecord
-             ├─ AuditRepository::bulkInsert(audit entries)
-             ├─ GitOpsMirror::commit(zone_id, actor)
-             ├─ StagingRepository::clearZone(zone_id)
-             └─ Release per-zone mutex
+ ├─[3] POST /zones/{id}/push  (operator)
+ │      └─ DeploymentEngine::push(zone_id, purge_drift, actor)
+ │           ├─ Acquire per-zone mutex
+ │           ├─ Re-run DiffEngine::preview() (freshness guard)
+ │           ├─ For each diff: IProvider::createRecord / updateRecord / deleteRecord
+ │           ├─ On any provider error → rollback attempted changes, release mutex, throw
+ │           ├─ AuditRepository::bulkInsert(push audit entries)
+ │           ├─ DeploymentRepository::create(zone_id, expanded_snapshot, actor)
+ │           ├─ DeploymentRepository::pruneOldSnapshots(zone_id)
+ │           ├─ GitOpsMirror::commit(zone_id, actor)
+ │           └─ Release per-zone mutex
+ │
+ └─[4] POST /zones/{id}/deployments/{did}/rollback  (operator)
+        └─ RollbackEngine::apply(zone_id, deployment_id, cherry_pick_ids)
+             ├─ DeploymentRepository::get(deployment_id) → snapshot JSONB
+             ├─ If cherry_pick_ids empty: RecordRepository::upsert() for all snapshot records
+             │  If cherry_pick_ids non-empty: RecordRepository::upsert() for selected record_ids only
+             ├─ AuditRepository::insert(operation='rollback', entity_id=deployment_id, actor)
+             └─ Return: desired state restored; operator must preview and push to deploy
 ```
 
 ### 7.2 Variable Expansion Flow
@@ -1167,6 +1248,7 @@ For sensitive secrets (`DNS_MASTER_KEY`, `DNS_JWT_SECRET`), a `_FILE` variant is
 | `DNS_TUI_API_KEY` | No | — | API key for TUI authentication; if unset, TUI reads `~/.config/dns-orchestrator/credentials` |
 | `DNS_AUDIT_STDOUT` | No | `false` | Mirror audit log entries to stdout (for Docker log collection) |
 | `DNS_AUDIT_RETENTION_DAYS` | No | `365` | Minimum age in days for audit records eligible for purge via `DELETE /audit/purge` (SEC-04) |
+| `DNS_DEPLOYMENT_RETENTION_COUNT` | No | `10` | Number of deployment snapshots to retain per zone. `0` = unlimited. Overridden per zone by `zones.deployment_retention`. |
 | `DNS_TLS_CERT_FILE` | No | — | Path to PEM TLS certificate chain (future native TLS support; SEC-08) |
 | `DNS_TLS_KEY_FILE` | No | — | Path to PEM TLS private key (future native TLS support; SEC-08) |
 | `DNS_LOG_LEVEL` | No | `info` | Log level: `debug`, `info`, `warn`, `error` |
@@ -1224,9 +1306,11 @@ All API errors return a consistent JSON body:
 | Variable unresolved at preview | Fail preview; return 422 with variable name |
 | Variable cycle detected | Fail preview; return 422 with cycle path |
 | Provider API unreachable at preview | Fail preview; return 502 |
-| Provider API error during push | Rollback attempted changes; return 502; log to audit |
+| Provider API error during push | Rollback attempted provider changes; return 502; log to audit |
 | Zone already being pushed | Return 409 `deployment_locked` |
 | Git mirror push fails | Log warning to audit; push is still marked successful |
+| Deployment snapshot not found | Return 404 `deployment_not_found` |
+| Rollback cherry-pick ID not in snapshot | Return 422 `invalid_cherry_pick_id` with list of valid IDs |
 | DB connection unavailable | Return 503; log to stderr |
 | JWT expired | Return 401 `token_expired` |
 | JWT revoked | Return 401 `token_revoked` |
@@ -1262,13 +1346,14 @@ dns-orchestrator/
 │   │       ├── ZoneRoutes.hpp
 │   │       ├── RecordRoutes.hpp
 │   │       ├── VariableRoutes.hpp
-│   │       ├── StagingRoutes.hpp
+│   │       ├── DeploymentRoutes.hpp
 │   │       ├── AuditRoutes.hpp
 │   │       └── HealthRoutes.hpp
 │   ├── core/
 │   │   ├── VariableEngine.hpp
 │   │   ├── DiffEngine.hpp
 │   │   ├── DeploymentEngine.hpp
+│   │   ├── RollbackEngine.hpp
 │   │   └── ThreadPool.hpp
 │   ├── providers/
 │   │   ├── IProvider.hpp           # Pure abstract interface
@@ -1283,7 +1368,7 @@ dns-orchestrator/
 │   │   ├── ZoneRepository.hpp
 │   │   ├── RecordRepository.hpp
 │   │   ├── VariableRepository.hpp
-│   │   ├── StagingRepository.hpp
+│   │   ├── DeploymentRepository.hpp
 │   │   ├── AuditRepository.hpp
 │   │   ├── UserRepository.hpp
 │   │   ├── SessionRepository.hpp
@@ -1304,7 +1389,7 @@ dns-orchestrator/
 │           ├── ViewSwitcher.hpp
 │           ├── ZoneListPane.hpp
 │           ├── RecordTablePane.hpp
-│           ├── StagingPane.hpp
+│           ├── DeploymentHistoryPane.hpp
 │           ├── RecordEditModal.hpp
 │           ├── VariablePickerModal.hpp
 │           └── StatusBar.hpp
@@ -1323,6 +1408,7 @@ dns-orchestrator/
 │   │   ├── VariableEngine.cpp
 │   │   ├── DiffEngine.cpp
 │   │   ├── DeploymentEngine.cpp
+│   │   ├── RollbackEngine.cpp
 │   │   └── ThreadPool.cpp
 │   ├── providers/
 │   │   ├── ProviderFactory.cpp
