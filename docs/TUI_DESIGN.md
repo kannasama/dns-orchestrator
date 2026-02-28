@@ -8,7 +8,7 @@
 
 ## Overview
 
-The TUI client is a standalone terminal application that communicates with the DNS Orchestrator server exclusively via its REST API (see [ARCHITECTURE.md §6](../ARCHITECTURE.md)). It has **no direct database access** and shares no code with the server binary.
+The TUI client is a standalone terminal application that communicates with the DNS Orchestrator server exclusively via its REST API (see [ARCHITECTURE.md §6](ARCHITECTURE.md)). It has **no direct database access** and shares no code with the server binary.
 
 This document will contain the full TUI design when development begins. The sections below capture the original design intent from the server architecture for reference.
 

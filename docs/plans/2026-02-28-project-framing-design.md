@@ -3,7 +3,7 @@
 > **Date:** 2026-02-28
 > **Status:** Draft
 > **Scope:** Project skeleton + foundation layer for the server-side application
-> **Prerequisite:** [ARCHITECTURE.md](../../ARCHITECTURE.md), [SECURITY_PLAN.md](../../plans/SECURITY_PLAN.md)
+> **Prerequisite:** [ARCHITECTURE.md](../ARCHITECTURE.md), [SECURITY_PLAN.md](SECURITY_PLAN.md)
 
 ---
 

@@ -1,6 +1,6 @@
 # Architecture: C++ Multi-Provider DNS Orchestrator
 
-> This document translates the design intent of [SPEC.md](SPEC.md) into a concrete, implementable system architecture. It defines component boundaries, interfaces, data models, API contracts, and data flows.
+> This document translates the design intent of [DESIGN.md](DESIGN.md) into a concrete, implementable system architecture. It defines component boundaries, interfaces, data models, API contracts, and data flows.
 
 ---
 
@@ -661,7 +661,7 @@ All SQL is executed via `libpqxx` parameterized queries (`pqxx::work::exec_param
 
 > **Note:** The TUI client is maintained as a separate project with its own repository. It communicates exclusively with the REST API defined in §6 — it has no direct database access or shared code with the server beyond the API contract.
 >
-> For the full TUI design — screen hierarchy, key bindings, FTXUI components, and `ApiKeyConfig` loading — see the [TUI Client Design Document](docs/TUI_DESIGN.md).
+> For the full TUI design — screen hierarchy, key bindings, FTXUI components, and `ApiKeyConfig` loading — see the [TUI Client Design Document](TUI_DESIGN.md).
 
 **Summary:**
 
@@ -1396,8 +1396,6 @@ All API errors return a consistent JSON body:
 ```
 dns-orchestrator/
 ├── CMakeLists.txt
-├── SPEC.md
-├── ARCHITECTURE.md
 ├── README.md
 ├── .gitmodules
 │
@@ -1505,9 +1503,14 @@ dns-orchestrator/
 │       └── entrypoint.sh
 │
 ├── docs/
-│   └── api/                        # OpenAPI spec (future)
+│   ├── DESIGN.md                   # High-level design specification
+│   ├── ARCHITECTURE.md             # This document
+│   ├── BUILD_ENVIRONMENT.md        # Development environment setup
+│   ├── CODE_STANDARDS.md           # Naming, formatting, error handling rules
+│   ├── TUI_DESIGN.md              # TUI client design (separate repository)
+│   └── plans/                      # Design documents and implementation plans
 │
-└── plans/                          # Architecture and planning documents
+└── tasks/                          # Operational tracking (lessons, todos)
 ```
 
 ---

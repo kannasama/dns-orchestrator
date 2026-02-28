@@ -68,7 +68,7 @@ The DNS Orchestrator is a **critical infrastructure control plane**. A successfu
 ### C-1 — API Key Hashing (SEC-01)
 
 **Severity:** Critical  
-**Component:** [`CryptoService`](../include/security/CryptoService.hpp), [`ApiKeyRepository`](../include/dal/ApiKeyRepository.hpp)
+**Component:** [`CryptoService`](../../include/security/CryptoService.hpp), [`ApiKeyRepository`](../../include/dal/ApiKeyRepository.hpp)
 
 **Finding:**  
 The architecture specifies SHA-256 for hashing API keys stored in the `api_keys` table. SHA-256 is a general-purpose fast hash designed for throughput, not password/key storage. An attacker who dumps the `api_keys` table could attempt offline brute-force at billions of hashes per second on commodity hardware.
@@ -91,7 +91,7 @@ Upgrade to **SHA-512** (available via OpenSSL `EVP_sha512()` — zero new depend
 ### C-2 — OIDC CSRF / Replay (SEC-06)
 
 **Severity:** Critical  
-**Component:** [`AuthService`](../include/security/AuthService.hpp), [`AuthRoutes`](../include/api/routes/AuthRoutes.hpp)
+**Component:** [`AuthService`](../../include/security/AuthService.hpp), [`AuthRoutes`](../../include/api/routes/AuthRoutes.hpp)
 
 **Finding:**  
 The OIDC Authorization Code Flow with PKCE is specified, but the architecture does not document:
@@ -132,7 +132,7 @@ SameSite=Lax; HttpOnly; Secure; Max-Age=600
 ### C-3 — SAML Assertion Replay (SEC-07)
 
 **Severity:** Critical  
-**Component:** [`AuthService`](../include/security/AuthService.hpp), [`AuthRoutes`](../include/api/routes/AuthRoutes.hpp)
+**Component:** [`AuthService`](../../include/security/AuthService.hpp), [`AuthRoutes`](../../include/api/routes/AuthRoutes.hpp)
 
 **Finding:**  
 The SAML ACS endpoint (`POST /auth/saml/acs`) has no documented mechanism to prevent assertion replay. A captured SAML assertion (e.g., via network interception or XSS) can be replayed within its `NotOnOrAfter` validity window to obtain a new session.
@@ -167,7 +167,7 @@ private:
 ### H-1 — Secret Management (SEC-02)
 
 **Severity:** High  
-**Component:** [`Config`](../include/common/Config.hpp)
+**Component:** [`Config`](../../include/common/Config.hpp)
 
 **Finding:**  
 `DNS_MASTER_KEY` and `DNS_JWT_SECRET` are loaded exclusively from environment variables. Risks:
@@ -200,7 +200,7 @@ Support **file-based secret loading** as an alternative. Env var takes precedenc
 ### H-2 — TLS Termination (SEC-08)
 
 **Severity:** High  
-**Component:** Deployment model, [`ApiServer`](../include/api/ApiServer.hpp)
+**Component:** Deployment model, [`ApiServer`](../../include/api/ApiServer.hpp)
 
 **Finding:**  
 The Restbed server listens on plain HTTP (`EXPOSE 8080`). Without TLS, all traffic — including JWT bearer tokens, API keys, and DNS record data — is transmitted in cleartext. The architecture assumes a reverse proxy handles TLS, but this is not documented as a requirement.
@@ -223,7 +223,7 @@ When both are set, a future implementation will configure Restbed's SSL context 
 ### H-3 — Audit Log Retention (SEC-04 + SEC-05)
 
 **Severity:** High  
-**Component:** [`AuditRepository`](../include/dal/AuditRepository.hpp), [`AuditRoutes`](../include/api/routes/AuditRoutes.hpp)
+**Component:** [`AuditRepository`](../../include/dal/AuditRepository.hpp), [`AuditRoutes`](../../include/api/routes/AuditRoutes.hpp)
 
 **Finding:**  
 The audit log is insert-only with no purge mechanism. In a busy environment (frequent deployments, many users), the `audit_log` table will grow indefinitely, eventually causing storage exhaustion and query performance degradation.
@@ -259,7 +259,7 @@ GET /api/v1/audit/export?from=2025-01-01&to=2025-12-31
 ### M-1 — JWT Algorithm Abstraction (SEC-03)
 
 **Severity:** Medium  
-**Component:** [`AuthService`](../include/security/AuthService.hpp)
+**Component:** [`AuthService`](../../include/security/AuthService.hpp)
 
 **Finding:**  
 HS256 is hardcoded throughout the JWT signing/verification logic. Upgrading to RS256 or ES256 (asymmetric signing) in the future would require changes at every JWT call site.
@@ -294,7 +294,7 @@ public:
 ### M-2 — Security Response Headers (SEC-12)
 
 **Severity:** Medium  
-**Component:** [`ApiServer`](../include/api/ApiServer.hpp)
+**Component:** [`ApiServer`](../../include/api/ApiServer.hpp)
 
 **Finding:**  
 No HTTP security headers are set on responses. The Web GUI served by the API is vulnerable to:
@@ -324,7 +324,7 @@ Content-Security-Policy: default-src 'self'
 ### M-3 — Input Size Limits (SEC-11)
 
 **Severity:** Medium  
-**Component:** [`ApiServer`](../include/api/ApiServer.hpp), all route handlers
+**Component:** [`ApiServer`](../../include/api/ApiServer.hpp), all route handlers
 
 **Finding:**  
 No maximum sizes are defined for HTTP request bodies or individual field values. A malicious client could send oversized payloads to exhaust memory or trigger pathological behavior in JSON parsing.
@@ -360,7 +360,7 @@ All SQL uses `libpqxx` parameterized queries (`pqxx::work::exec_params()`). No r
 ### M-4 — Git SSH Host Verification (SEC-09)
 
 **Severity:** Medium  
-**Component:** [`GitOpsMirror`](../include/gitops/GitOpsMirror.hpp)
+**Component:** [`GitOpsMirror`](../../include/gitops/GitOpsMirror.hpp)
 
 **Finding:**  
 `libgit2` will connect to any SSH host without fingerprint verification unless explicitly configured. A MITM attacker on the network path between the app and the Git remote could intercept pushes containing fully-expanded DNS zone data (including internal IP addresses).
