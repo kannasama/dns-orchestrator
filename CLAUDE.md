@@ -1,0 +1,233 @@
+# DNS Orchestrator — Claude Code Project Context
+
+This file is read automatically by Claude Code at session start. It captures the project state,
+architectural decisions, and development roadmap so context transfers across machines and sessions.
+
+---
+
+## Project Status
+
+- **Phases 1–3 complete:** skeleton, foundation layer, 38 unit tests passing (commit `125a19a`)
+- **Next task:** Phase 3.5 — HTTP library migration (Restbed → Crow)
+- **Then:** Phase 4 — Authentication & Authorisation
+
+Build and test:
+```bash
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
+
+Startup sequence: steps 1–5 wired in `src/main.cpp`. Steps 6–12 deferred (warn-logged):
+- Step 6: GitOpsMirror → Phase 7
+- Step 7: ThreadPool → Phase 7
+- Step 7a: MaintenanceScheduler → Phase 4
+- Step 8: SamlReplayCache → Phase 4
+- Step 9: ProviderFactory → Phase 6
+- Steps 10–12: API routes + HTTP server + background tasks → Phases 5–7
+
+---
+
+## Tech Stack
+
+| Component | Library |
+|-----------|---------|
+| Language | C++20 (`-Wall -Wextra -Wpedantic -Werror`) |
+| Build | CMake 3.20+ + Ninja |
+| HTTP server | **Crow/CrowCpp v1.3.1** via FetchContent (replaced dormant Restbed) |
+| Database | PostgreSQL via libpqxx |
+| Crypto | OpenSSL (AES-256-GCM, HMAC-SHA256 JWT) |
+| Git integration | libgit2 |
+| Logging | spdlog |
+| JSON | nlohmann/json |
+| Testing | Google Test + Google Mock (FetchContent) |
+
+**HTTP library decision:** Restbed was dormant (last release Aug 2021), had no FetchContent
+support, and had GCC 15 compatibility issues. Crow was chosen: header-only, FetchContent-
+compatible, Flask-like middleware API, actively maintained (v1.3.1, Feb 2026).
+- Route syntax: `CROW_ROUTE(app, "/api/v1/zones/<int>")(handler)`
+- Middleware: structs with `before_handle()` / `after_handle()` methods
+
+---
+
+## Development Roadmap
+
+### Phase 3.5 — HTTP Library Migration ← NEXT
+
+**Goal:** Swap Restbed for Crow before any implementation begins. Pure build/docs change — zero
+restbed types exist in any source file yet, so this is cost-free.
+
+**Files to change:**
+
+`CMakeLists.txt` (root) — remove the `pkg_check_modules(RESTBED ...)` block; add:
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+  Crow
+  GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
+  GIT_TAG        v1.3.1
+)
+set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CROW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(Crow)
+```
+
+`src/CMakeLists.txt` — replace the conditional `PkgConfig::RESTBED` link with:
+```cmake
+target_link_libraries(dns-core PUBLIC Crow::Crow)
+```
+
+`include/api/ApiServer.hpp` — update class comment: "Owns the Crow application instance".
+
+`docs/BUILD_ENVIRONMENT.md` — remove `paru -S restbed`; note Crow is acquired at configure time.
+
+`docs/ARCHITECTURE.md` + `docs/DESIGN.md` — replace "Restbed" with "Crow (CrowCpp)".
+
+**Verification:** `cmake -B build ... && cmake --build build` succeeds; `ctest` still 38/38.
+
+---
+
+### Phase 4 — Authentication & Authorisation
+
+**Goal:** Production-grade auth before any data or provider work.
+
+- `src/security/AuthService.cpp` — local auth (Argon2id), `authenticateLocal()`, `validateToken()`,
+  `validateApiKey()`
+- `src/dal/UserRepository.cpp` — users, groups, group_members CRUD
+- `src/dal/SessionRepository.cpp` — `create()`, `exists()`, `touch()`, `pruneExpired()`
+- `src/dal/ApiKeyRepository.cpp` — `create()`, `validate()`, `revoke()`, `deletePending()`
+- `src/api/AuthMiddleware.cpp` — JWT + API key validation → `RequestContext`
+- `src/api/AuthRoutes.cpp` — `POST /api/v1/auth/login`, `/logout`, `/refresh`
+- `src/core/MaintenanceScheduler.cpp` — jthread + condvar; session prune + API key cleanup tasks
+- `src/main.cpp` — wire startup steps 7a, 8
+
+Reuse: `HmacJwtSigner` (complete), `CryptoService::generateApiKey()` + `hashApiKey()` (complete),
+`Config` fields `iJwtTtlSeconds`, `iSessionAbsoluteTtlSeconds`, `iApiKeyCleanupGraceSeconds`.
+
+**Verification:** 401 on protected route without token; 200 with valid JWT.
+
+---
+
+### Phase 5 — DAL: Core Repositories
+
+**Goal:** All entities persist to PostgreSQL; basic CRUD endpoints work.
+
+- `src/dal/ProviderRepository.cpp` — with `CryptoService::encrypt/decrypt` for tokens
+- `src/dal/ZoneRepository.cpp`
+- `src/dal/ViewRepository.cpp` — includes `view_providers` join table
+- `src/dal/VariableRepository.cpp`
+- `src/dal/RecordRepository.cpp`
+- `src/dal/DeploymentRepository.cpp` — snapshot versioning + retention
+- `src/dal/AuditRepository.cpp` — append-only + `purgeOld()`
+- `src/api/ApiServer.cpp` + basic CRUD routes for providers, zones, views, variables
+
+Reuse: `ConnectionGuard` RAII (complete), `AppError` hierarchy for pqxx exception mapping.
+
+---
+
+### Phase 6 — PowerDNS Provider + Core Engines
+
+**Goal:** Connect to a real DNS provider; diff and expand variables.
+
+- `src/providers/PowerDnsProvider.cpp` — PowerDNS REST API v1
+- `src/providers/ProviderFactory.cpp` — wire `provider_type::powerdns`
+- `src/core/VariableEngine.cpp` — `expand()`, `validate()`, `listDependencies()` for `{{var}}`
+- `src/core/DiffEngine.cpp` — three-way diff → `PreviewResult` with drift flag
+- `src/api/HealthRoutes.cpp` — `GET /api/v1/health`
+
+Reuse: `DnsRecord`, `PushResult`, `PreviewResult`, `RecordDiff` from `include/common/Types.hpp`.
+
+---
+
+### Phase 7 — Deployment Pipeline + GitOps
+
+**Goal:** End-to-end zone push with audit trail and Git history.
+
+- `src/core/DeploymentEngine.cpp` — expand → diff → push → snapshot → GitOps → audit
+- `src/core/RollbackEngine.cpp` — restore snapshot → push → audit
+- `src/core/ThreadPool.cpp` — `std::jthread` pool, `submit()` → `std::future<Result>`
+- `src/gitops/GitOpsMirror.cpp` — `initialize()`, `commit()`, `pull()` via libgit2
+- `src/api/RecordRoutes.cpp`, `DeploymentRoutes.cpp`, `AuditRoutes.cpp`
+- `src/main.cpp` — wire remaining startup steps 6, 7, 10, 11, 12
+
+---
+
+### Phase 8 — REST API Hardening + Docker Compose
+
+**Goal:** Full API surface documented and runnable in one command.
+
+- `docs/openapi.yaml`, request validation middleware, rate limiting on auth endpoints
+- `docker-compose.yml` (PostgreSQL 16 + PowerDNS + dns-orchestrator), `Dockerfile`
+- Full API integration test suite
+- **Naming brainstorm here** — rename before Web UI to avoid namespace churn. Target: something
+  that evokes control, zones, authority, or precision (not just "DNS + verb").
+
+---
+
+### Phase 9 — Web UI (Vue 3 + TypeScript)
+
+Separate repository: `dns-orchestrator-ui`. Stack: Vite + Vue 3 + TypeScript.
+
+Feature order: auth → providers → zones/views → records → variables → deployment workflow →
+audit log.
+
+---
+
+### Phase 10 — Additional Providers
+
+- `src/providers/CloudflareProvider.cpp` — Cloudflare API v4
+- `src/providers/DigitalOceanProvider.cpp` — DigitalOcean API v2
+- Provider-agnostic conformance test suite
+
+---
+
+### Phase 11 — TUI Client
+
+Separate repository: `dns-orchestrator-tui`. Consumes REST API. See `docs/TUI_DESIGN.md`.
+
+---
+
+## Code Standards
+
+**Naming (Hungarian notation variant):**
+
+| Element | Convention | Example |
+|---------|-----------|---------|
+| Classes | PascalCase | `VariableEngine` |
+| Instance vars | Abbr + PascalCase | `veEngine`, `cpPool` |
+| Strings | `s` prefix | `sName`, `sZoneName` |
+| Ints | `i` prefix | `iZoneId`, `iPort` |
+| Bools | `b` prefix | `bHasDrift` |
+| Vectors | `v` prefix | `vRecords` |
+| Raw ptr (non-owning) | `p` prefix | `pService` |
+| `shared_ptr` | `sp` prefix | `spEngine` |
+| `unique_ptr` | `up` prefix | `upPool` |
+| Member vars | `_` + type prefix | `_sUsername`, `_iPoolSize` |
+| Functions | camelCase | `expand()`, `listRecords()` |
+| Constants/enums | PascalCase | `HealthStatus::Degraded` |
+| Namespaces | lowercase | `dns::core` |
+
+**Formatting:** 2-space indent, 100-char line limit, Google style, K&R braces, `#pragma once`.
+
+**Error handling:** `AppError` hierarchy; never catch and swallow silently; always map to HTTP
+status. Business errors thrown as typed exceptions, caught at API boundary.
+
+**Ownership:** `unique_ptr` by default; `shared_ptr` only when genuinely shared; raw pointers
+only for non-owning references.
+
+---
+
+## Key File Paths
+
+| Path | Purpose |
+|------|---------|
+| `docs/ARCHITECTURE.md` | Canonical design reference (86KB) |
+| `docs/DESIGN.md` | Executive summary + design rationale |
+| `docs/CODE_STANDARDS.md` | Full naming/formatting/ownership rules |
+| `docs/TUI_DESIGN.md` | TUI client design spec |
+| `scripts/db/001_initial_schema.sql` | Full PostgreSQL schema (11 tables) |
+| `scripts/db/002_add_indexes.sql` | 11 performance indexes |
+| `src/main.cpp` | Startup sequence (steps 1–5 done, 6–12 deferred) |
+| `include/common/Types.hpp` | Core data types: `DnsRecord`, `PreviewResult`, etc. |
+| `include/common/Errors.hpp` | `AppError` hierarchy |
+| `tests/unit/` | 6 test files, 38 passing unit tests |
