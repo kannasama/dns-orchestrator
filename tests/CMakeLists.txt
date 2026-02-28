@@ -15,24 +15,22 @@ file(GLOB_RECURSE DNS_TEST_SOURCES
 )
 
 # ── dns-tests executable ───────────────────────────────────────────────────
-add_executable(dns-tests ${DNS_TEST_SOURCES})
+# Uses a custom main (test_main.cpp) that shuts down spdlog before exit
+# to avoid static destruction order issues with the spdlog shared library.
+add_executable(dns-tests
+  ${DNS_TEST_SOURCES}
+  "${CMAKE_CURRENT_SOURCE_DIR}/test_main.cpp"
+)
 
 target_link_libraries(dns-tests PRIVATE
   dns-core
   GTest::gtest
-  GTest::gtest_main
   GTest::gmock
 )
 
 # ── CTest integration ──────────────────────────────────────────────────────
+# Use PRE_TEST discovery mode to defer test listing to ctest run time
 include(GoogleTest)
-gtest_discover_tests(dns-tests)
-
-# ── Integration test labeling ───────────────────────────────────────────────
-# Integration tests require DNS_DB_URL to be set. Label them so they can be
-# run selectively:
-#   ctest --test-dir build -L Integration
-#
-# Individual integration tests are labeled via set_tests_properties() after
-# gtest_discover_tests() populates them. Example:
-#   set_tests_properties(ConnectionPoolTest.* PROPERTIES LABELS "Integration")
+gtest_discover_tests(dns-tests
+  DISCOVERY_MODE PRE_TEST
+)
