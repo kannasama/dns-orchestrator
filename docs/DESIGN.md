@@ -5,7 +5,7 @@ This application is a high-performance DNS Control Plane built in C++20. It serv
 
 ## 2. Technical Stack & Ecosystem
 - **Language Standard:** C++20 (utilizing `std::jthread` for background syncing, `std::filesystem` for Git management, and `std::format`).
-- **REST API:** `Pistache` or `Restbed` (Asynchronous, non-blocking HTTP).
+- **REST API:** `Crow` (CrowCpp v1.3.1, header-only, acquired via CMake FetchContent).
 - **Database:** PostgreSQL 15+ (via `libpqxx`).
 - **Serialization:** `nlohmann/json` (Configured for 2-space indentation for Git readability).
 - **TUI Framework:** `FTXUI` (Functional Terminal User Interface).
