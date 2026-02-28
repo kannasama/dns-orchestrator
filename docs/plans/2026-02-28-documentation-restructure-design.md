@@ -165,7 +165,7 @@ engine, and GitOps-style version control.
 |-----------|------------|
 | Language | C++ (C++20, GCC 12+) |
 | Build System | CMake 3.20+ / Ninja |
-| HTTP Server | Restbed |
+| HTTP Server | Crow (CrowCpp v1.3.1) |
 | Database | PostgreSQL 15+ (via libpqxx) |
 | Encryption | OpenSSL 3.x (AES-256-GCM) |
 | Serialization | nlohmann/json |
@@ -195,7 +195,8 @@ paru -S --needed \
     base-devel git cmake ninja gcc \
     postgresql-libs libpqxx \
     openssl libgit2 nlohmann-json \
-    spdlog restbed
+    spdlog
+# Crow (HTTP server) is fetched automatically via CMake FetchContent — no system package needed
 
 # Build
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_STANDARD=20

@@ -203,11 +203,11 @@ Support **file-based secret loading** as an alternative. Env var takes precedenc
 **Component:** Deployment model, [`ApiServer`](../../include/api/ApiServer.hpp)
 
 **Finding:**  
-The Restbed server listens on plain HTTP (`EXPOSE 8080`). Without TLS, all traffic — including JWT bearer tokens, API keys, and DNS record data — is transmitted in cleartext. The architecture assumes a reverse proxy handles TLS, but this is not documented as a requirement.
+The Crow HTTP server listens on plain HTTP (`EXPOSE 8080`). Without TLS, all traffic — including JWT bearer tokens, API keys, and DNS record data — is transmitted in cleartext. The architecture assumes a reverse proxy handles TLS, but this is not documented as a requirement.
 
 **Decision:**  
 - **Current:** Reverse proxy handles TLS termination. This is a **hard deployment requirement**.
-- **Future:** Native TLS support via Restbed SSL bindings. Stub env vars now so the interface is stable.
+- **Future:** Native TLS support via Crow SSL bindings. Stub env vars now so the interface is stable.
 
 **Deployment Requirement:**  
 The application MUST be deployed behind a TLS-terminating reverse proxy (nginx, Caddy, Traefik, or equivalent). Direct exposure of port 8080 to untrusted networks is a security violation.
@@ -216,7 +216,7 @@ The application MUST be deployed behind a TLS-terminating reverse proxy (nginx, 
 - `DNS_TLS_CERT_FILE` — path to PEM certificate chain
 - `DNS_TLS_KEY_FILE` — path to PEM private key
 
-When both are set, a future implementation will configure Restbed's SSL context instead of plain HTTP.
+When both are set, a future implementation will configure Crow's SSL context instead of plain HTTP.
 
 ---
 
@@ -304,7 +304,7 @@ No HTTP security headers are set on responses. The Web GUI served by the API is 
 - **XSS** via inline scripts (missing `Content-Security-Policy`)
 
 **Decision:**  
-Add a Restbed response middleware (applied to all routes) that injects:
+Add a Crow response middleware (applied to all routes) that injects:
 
 ```
 X-Content-Type-Options: nosniff
@@ -314,10 +314,10 @@ Content-Security-Policy: default-src 'self'
 ```
 
 **Implementation Notes:**
-- Implemented as a Restbed `publish_handler` or equivalent post-processing hook in `ApiServer`
+- Implemented as a Crow `after_handle()` middleware method or equivalent post-processing hook in `ApiServer`
 - `Content-Security-Policy` starts restrictive (`default-src 'self'`); can be relaxed for specific GUI asset needs
 - `X-Frame-Options: DENY` prevents the app from being embedded in iframes (clickjacking)
-- Do NOT set `Server:` header (remove Restbed's default server identification header)
+- Do NOT set `Server:` header (remove Crow's default server identification header)
 
 ---
 
@@ -332,7 +332,7 @@ No maximum sizes are defined for HTTP request bodies or individual field values.
 **Decision:**  
 Define explicit limits enforced at two levels:
 
-**Level 1 — HTTP Layer (Restbed config):**
+**Level 1 — HTTP Layer (Crow config):**
 - Maximum request body size: **64 KB** (sufficient for any valid DNS API request)
 - Requests exceeding this limit → `413 Payload Too Large`
 
@@ -492,7 +492,7 @@ The `AuditRepository` uses `DNS_DB_URL` for inserts and reads, and `DNS_AUDIT_DB
 | SEC-08 | TLS documentation: reverse proxy requirement; stub `DNS_TLS_CERT_FILE`/`DNS_TLS_KEY_FILE` | High | Pending |
 | SEC-09 | Git security documentation: deploy key scope; stub `DNS_GIT_KNOWN_HOSTS_FILE` | Medium | Pending |
 | SEC-10 | Rate limiting documentation: nginx/Caddy/Traefik examples in deployment docs | Low | Pending |
-| SEC-11 | Input size limits: 64KB body limit in Restbed; field-level limits in route handlers | Medium | Pending |
+| SEC-11 | Input size limits: 64KB body limit in Crow; field-level limits in route handlers | Medium | Pending |
 | SEC-12 | Security response headers middleware in `ApiServer` | Medium | Pending |
 | SEC-13 | PostgreSQL least-privilege: `dns_app` + `dns_audit_admin` roles; `DNS_AUDIT_DB_URL` | Low | Pending |
 | SEC-14 | Update `ARCHITECTURE.md` with all decisions from this review | — | Pending |

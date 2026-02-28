@@ -8,8 +8,8 @@ architectural decisions, and development roadmap so context transfers across mac
 ## Project Status
 
 - **Phases 1–3 complete:** skeleton, foundation layer, 38 unit tests passing (commit `125a19a`)
-- **Next task:** Phase 3.5 — HTTP library migration (Restbed → Crow)
-- **Then:** Phase 4 — Authentication & Authorisation
+- **Phase 3.5 complete:** HTTP library migration to Crow (CrowCpp v1.3.1) done
+- **Next task:** Phase 4 — Authentication & Authorisation
 
 Build and test:
 ```bash
@@ -34,7 +34,7 @@ Startup sequence: steps 1–5 wired in `src/main.cpp`. Steps 6–12 deferred (wa
 |-----------|---------|
 | Language | C++20 (`-Wall -Wextra -Wpedantic -Werror`) |
 | Build | CMake 3.20+ + Ninja |
-| HTTP server | **Crow/CrowCpp v1.3.1** via FetchContent (replaced dormant Restbed) |
+| HTTP server | **Crow/CrowCpp v1.3.1** via FetchContent |
 | Database | PostgreSQL via libpqxx |
 | Crypto | OpenSSL (AES-256-GCM, HMAC-SHA256 JWT) |
 | Git integration | libgit2 |
@@ -42,9 +42,8 @@ Startup sequence: steps 1–5 wired in `src/main.cpp`. Steps 6–12 deferred (wa
 | JSON | nlohmann/json |
 | Testing | Google Test + Google Mock (FetchContent) |
 
-**HTTP library decision:** Restbed was dormant (last release Aug 2021), had no FetchContent
-support, and had GCC 15 compatibility issues. Crow was chosen: header-only, FetchContent-
-compatible, Flask-like middleware API, actively maintained (v1.3.1, Feb 2026).
+**HTTP library (Crow):** Header-only, FetchContent-compatible, Flask-like middleware API,
+actively maintained (v1.3.1, Feb 2026).
 - Route syntax: `CROW_ROUTE(app, "/api/v1/zones/<int>")(handler)`
 - Middleware: structs with `before_handle()` / `after_handle()` methods
 
@@ -52,38 +51,19 @@ compatible, Flask-like middleware API, actively maintained (v1.3.1, Feb 2026).
 
 ## Development Roadmap
 
-### Phase 3.5 — HTTP Library Migration ← NEXT
+### Phase 3.5 — HTTP Library Migration ← COMPLETE
 
-**Goal:** Swap Restbed for Crow before any implementation begins. Pure build/docs change — zero
-restbed types exist in any source file yet, so this is cost-free.
+**Summary:** Migrated HTTP library to Crow (CrowCpp v1.3.1) via CMake FetchContent. Pure
+build/docs change — no HTTP framework types existed in source files, making the switch cost-free.
 
-**Files to change:**
+**Changes made:**
+- `CMakeLists.txt` — added `FetchContent_MakeAvailable(Crow)` block
+- `src/CMakeLists.txt` — added `target_link_libraries(dns-core PUBLIC Crow::Crow)`
+- `include/api/ApiServer.hpp` — updated class comment to reference Crow application instance
+- `docs/BUILD_ENVIRONMENT.md` — removed legacy AUR package; Crow is acquired at configure time
+- `docs/ARCHITECTURE.md` + `docs/DESIGN.md` — updated all HTTP framework references to Crow
 
-`CMakeLists.txt` (root) — remove the `pkg_check_modules(RESTBED ...)` block; add:
-```cmake
-include(FetchContent)
-FetchContent_Declare(
-  Crow
-  GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
-  GIT_TAG        v1.3.1
-)
-set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(CROW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(Crow)
-```
-
-`src/CMakeLists.txt` — replace the conditional `PkgConfig::RESTBED` link with:
-```cmake
-target_link_libraries(dns-core PUBLIC Crow::Crow)
-```
-
-`include/api/ApiServer.hpp` — update class comment: "Owns the Crow application instance".
-
-`docs/BUILD_ENVIRONMENT.md` — remove `paru -S restbed`; note Crow is acquired at configure time.
-
-`docs/ARCHITECTURE.md` + `docs/DESIGN.md` — replace "Restbed" with "Crow (CrowCpp)".
-
-**Verification:** `cmake -B build ... && cmake --build build` succeeds; `ctest` still 38/38.
+**Result:** Clean build, all 38 tests pass, zero framework references in source/cmake files.
 
 ---
 

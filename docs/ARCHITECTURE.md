@@ -47,7 +47,7 @@
 | **Fail-Safe Deployments** | No push occurs unless variable expansion and diff preview succeed without errors |
 | **Provider Isolation** | Internal-view records are never transmitted to external-view providers |
 | **Abstraction at Boundaries** | All provider, HTTP, and storage integrations are hidden behind C++ abstract interfaces |
-| **Simplicity First** | Restbed is used directly; an `IHttpServer` wrapper is provided only if a second framework is ever needed |
+| **Simplicity First** | Crow is used directly; an `IHttpServer` wrapper is provided only if a second framework is ever needed |
 | **Auditability** | Every mutation is logged with full before/after state and actor identity |
 | **GitOps as Mirror** | Git is a human-readable backup of live state, not a source of truth |
 
@@ -67,7 +67,7 @@
           └──────────┬──────────┘        └──────────┬──────────┘
                      │                              │
           ┌──────────▼──────────────────────────────▼──────────┐
-          │              REST API Server (Restbed)              │
+          │               REST API Server (Crow)                │
           │                  /api/v1/...                        │
           └──────────────────────────┬──────────────────────────┘
                                      │
@@ -101,7 +101,7 @@ The codebase is organized into six horizontal layers. Each layer may only depend
 ┌─────────────────────────────────────────────────────────┐  Layer 6
 │  Client Layer:  Web GUI static assets  |  TUI (FTXUI)   │
 ├─────────────────────────────────────────────────────────┤  Layer 5
-│  API Layer:     Restbed HTTP handlers  |  Route mapping  │
+│  API Layer:     Crow HTTP handlers     |  Route mapping  │
 ├─────────────────────────────────────────────────────────┤  Layer 4
 │  Core Engine:   VariableEngine  |  DiffEngine           │
 │                 DeploymentEngine  |  ThreadPool          │
@@ -629,11 +629,11 @@ Referrer-Policy: strict-origin-when-cross-origin
 Content-Security-Policy: default-src 'self'
 ```
 
-The `Server:` response header is suppressed (Restbed's default server identification is removed).
+The `Server:` response header is suppressed (Crow's default server identification header is removed).
 
 #### 4.6.5 Input Validation Limits (SEC-11)
 
-**HTTP Layer (Restbed configuration):**
+**HTTP Layer (Crow configuration):**
 - Maximum request body size: **64 KB** — requests exceeding this return `413 Payload Too Large`
 
 **Application Layer (enforced in route handlers):**
@@ -1294,8 +1294,8 @@ For sensitive secrets (`DNS_MASTER_KEY`, `DNS_JWT_SECRET`), a `_FILE` variant is
 | `DNS_JWT_SECRET_FILE` | Yes* | — | Path to file containing the JWT secret (*used if `DNS_JWT_SECRET` is unset; SEC-02) |
 | `DNS_JWT_ALGORITHM` | No | `HS256` | JWT signing algorithm; `HS256` now; `RS256`/`ES256` supported in future (SEC-03) |
 | `DNS_JWT_TTL_SECONDS` | No | `28800` | JWT expiry in seconds (default 8 hours) |
-| `DNS_HTTP_PORT` | No | `8080` | Port for the Restbed HTTP server |
-| `DNS_HTTP_THREADS` | No | `4` | Restbed worker thread count |
+| `DNS_HTTP_PORT` | No | `8080` | Port for the Crow HTTP server |
+| `DNS_HTTP_THREADS` | No | `4` | Crow worker thread count |
 | `DNS_THREAD_POOL_SIZE` | No | `hw_concurrency` | Core engine thread pool size |
 | `DNS_GIT_REMOTE_URL` | No | — | Git remote URL for GitOps mirror (disabled if unset) |
 | `DNS_GIT_LOCAL_PATH` | No | `/var/dns-orchestrator/repo` | Local path for Git mirror clone |
@@ -1630,7 +1630,7 @@ volumes:
 8. Initialize SamlReplayCache (if SAML is enabled)
 9. Initialize ProviderFactory
 10. Register all API routes on ApiServer (with security headers middleware)
-11. Start Restbed HTTP server on DNS_HTTP_PORT
+11. Start Crow HTTP server on DNS_HTTP_PORT
 12. Log "dns-orchestrator ready" to stdout
 ```
 
@@ -1653,7 +1653,7 @@ This section documents operational security requirements and deployment constrai
 | **Network isolation** | PostgreSQL must not be exposed to the public internet. Use Docker networks or Kubernetes NetworkPolicy to restrict DB access to the application container only. |
 
 **Future native TLS (not yet implemented):**
-When `DNS_TLS_CERT_FILE` and `DNS_TLS_KEY_FILE` are both set, a future implementation will configure Restbed's SSL context for direct TLS termination without a reverse proxy.
+When `DNS_TLS_CERT_FILE` and `DNS_TLS_KEY_FILE` are both set, a future implementation will configure Crow's SSL context for direct TLS termination without a reverse proxy.
 
 ---
 

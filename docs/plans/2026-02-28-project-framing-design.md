@@ -88,7 +88,7 @@ All external dependencies use system packages via `find_package()` or `pkg_check
 | libpqxx | `find_package(libpqxx)` | `libpqxx` | PostgreSQL C++ client |
 | OpenSSL | `find_package(OpenSSL)` | `openssl` | AES-256-GCM, SHA-512, HMAC, Argon2id |
 | libgit2 | `pkg_check_modules(LIBGIT2 libgit2)` | `libgit2` | GitOps mirror |
-| Restbed | `pkg_check_modules(RESTBED restbed)` | `restbed` (AUR) | HTTP server |
+| Crow | `FetchContent_MakeAvailable(Crow)` | N/A (fetched at configure time) | HTTP server |
 | nlohmann_json | `find_package(nlohmann_json)` | `nlohmann-json` | JSON serialization |
 | spdlog | `find_package(spdlog)` | `spdlog` | Structured logging |
 | GTest/GMock | `FetchContent` (pinned release tag) | N/A | Testing framework |
@@ -370,7 +370,7 @@ Implements ARCHITECTURE.md §11.4 steps 1 through 5:
 5. Log "foundation ready" — remaining startup steps are stubs
 ```
 
-Steps 6–12 (GitOps, ThreadPool, MaintenanceScheduler, routes, Restbed) remain as stubs that log "not yet implemented" and are built in subsequent phases.
+Steps 6–12 (GitOps, ThreadPool, MaintenanceScheduler, routes, Crow HTTP server) remain as stubs that log "not yet implemented" and are built in subsequent phases.
 
 ---
 
