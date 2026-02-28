@@ -5,7 +5,7 @@
 
 namespace dns::api {
 
-/// Owns the Restbed Service instance; registers all routes at startup.
+/// Owns the Crow application instance; registers all routes at startup.
 /// Class abbreviation: api
 class ApiServer {
  public:
