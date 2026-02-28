@@ -23,12 +23,8 @@ target_link_libraries(dns-core PUBLIC
   nlohmann_json::nlohmann_json
   spdlog::spdlog
   PkgConfig::LIBGIT2
+  Crow::Crow
 )
-
-# Link restbed only if found
-if(RESTBED_FOUND)
-  target_link_libraries(dns-core PUBLIC PkgConfig::RESTBED)
-endif()
 
 # ── dns-orchestrator executable ─────────────────────────────────────────────
 add_executable(dns-orchestrator main.cpp)

@@ -25,16 +25,17 @@ include(FindPkgConfig)
 pkg_check_modules(LIBPQXX REQUIRED IMPORTED_TARGET libpqxx)
 pkg_check_modules(LIBGIT2 REQUIRED IMPORTED_TARGET libgit2)
 
-# Restbed: optional — the AUR package is currently broken.
-# When available, install via system package or build from source.
-# The skeleton compiles without it since stubs don't reference restbed APIs.
-pkg_check_modules(RESTBED IMPORTED_TARGET restbed)
-if(NOT RESTBED_FOUND)
-  message(WARNING
-    "restbed not found via pkg-config. "
-    "API server stubs will compile but restbed integration is deferred. "
-    "Install restbed or build from source when implementing the API layer.")
-endif()
+# ── Crow (HTTP server) ──────────────────────────────────────────────────────
+# Header-only; fetched at configure time — no system package required.
+include(FetchContent)
+FetchContent_Declare(
+  Crow
+  GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
+  GIT_TAG        v1.3.1
+)
+set(CROW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(CROW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(Crow)
 
 # ── Subdirectories ─────────────────────────────────────────────────────────
 add_subdirectory(src)
