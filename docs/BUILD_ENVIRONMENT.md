@@ -89,22 +89,18 @@ paru -S --needed \
 
 The following libraries are not in the official repos and must be installed from the AUR.
 
-### 4.1 Restbed (HTTP Server Framework)
+### 4.1 Crow (HTTP Framework)
 
-The API layer uses **Restbed** (`librestbed`) for the asynchronous HTTP server.
+The API layer uses **Crow** (CrowCpp) for the HTTP server. Crow is acquired automatically via
+CMake FetchContent at configure time — **no system package installation required**.
 
-```bash
-paru -S restbed
-```
+When you run `cmake -B build`, CMake downloads and configures Crow v1.3.1 from GitHub.
+Nothing to install manually.
 
-> **AUR package:** [`restbed`](https://aur.archlinux.org/packages/restbed)
-> Installs `librestbed.so` and headers to `/usr/include/restbed`.
+### 4.2 AUR Dependencies
 
-### 4.2 One-liner for all AUR packages
-
-```bash
-paru -S restbed
-```
+There are no AUR dependencies. All third-party libraries are either in the official Arch
+repos or acquired via CMake FetchContent at build time.
 
 > **Note:** FTXUI is no longer required in this repository. The TUI client is maintained
 > as a separate project — see [TUI Client Design](TUI_DESIGN.md).
@@ -327,13 +323,12 @@ Complete mapping of Dockerfile/Debian package names to their Arch/AUR equivalent
 | `libpqxx-dev` | `libpqxx` | Official | C++ PostgreSQL client |
 | `libssl-dev` | `openssl` | Official | OpenSSL 3.x headers + libs |
 | `libgit2-dev` | `libgit2` | Official | libgit2 headers + libs |
-| `librestbed-dev` | `restbed` | AUR | Restbed HTTP framework |
+| *(none)* | *(none)* | FetchContent | Crow HTTP framework (auto-fetched by CMake) |
 | `nlohmann-json3-dev` | `nlohmann-json` | Official | Header-only JSON library |
 | `postgresql` (runtime) | `postgresql` | Official | PostgreSQL 15+ server — **assumed pre-installed** |
 | `libpq5` (runtime) | `postgresql-libs` | Official | PostgreSQL runtime client library |
 | `libssl3` (runtime) | `openssl` | Official | OpenSSL 3.x runtime |
 | `libgit2-1.5` (runtime) | `libgit2` | Official | libgit2 runtime |
-| `librestbed0` (runtime) | `restbed` | AUR | Restbed runtime |
 
 ---
 
@@ -348,8 +343,7 @@ paru -S --needed \
     base-devel git cmake ninja gcc \
     postgresql-libs libpqxx \
     openssl libgit2 nlohmann-json \
-    spdlog \
-    restbed
+    spdlog
 
 # 3. Provision database on existing PostgreSQL 15+ instance
 # (adjust connection method if your instance uses TCP/IP auth instead of peer auth)
