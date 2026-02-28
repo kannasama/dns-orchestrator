@@ -64,7 +64,8 @@ paru -S --needed \
     libpqxx \
     openssl \
     libgit2 \
-    nlohmann-json
+    nlohmann-json \
+    spdlog
 ```
 
 > **Note:** `postgresql` (the server) is not listed here because this guide assumes an
@@ -80,6 +81,7 @@ paru -S --needed \
 | `openssl` | `libssl.so`, `libcrypto.so` | AES-256-GCM credential encryption, Argon2id hashing |
 | `libgit2` | `libgit2.so`, `<git2.h>` | GitOps mirror subsystem (`libgit2` native bindings) |
 | `nlohmann-json` | `<nlohmann/json.hpp>` | JSON serialization (header-only) |
+| `spdlog` | `libspdlog.so`, `<spdlog/spdlog.h>` | Structured logging (JSON output, configurable levels) |
 
 ---
 
@@ -98,21 +100,26 @@ paru -S restbed
 > **AUR package:** [`restbed`](https://aur.archlinux.org/packages/restbed)
 > Installs `librestbed.so` and headers to `/usr/include/restbed`.
 
-### 4.2 FTXUI (Terminal UI Framework)
-
-The TUI layer uses **FTXUI** for the functional terminal interface.
+### 4.2 One-liner for all AUR packages
 
 ```bash
-paru -S ftxui
+paru -S restbed
 ```
 
-> **AUR package:** [`ftxui`](https://aur.archlinux.org/packages/ftxui)
-> Installs `libftxui-*.a` static libraries and headers to `/usr/include/ftxui`.
+> **Note:** FTXUI is no longer required in this repository. The TUI client is maintained
+> as a separate project — see [TUI Client Design](TUI_DESIGN.md).
 
-### 4.3 One-liner for all AUR packages
+### 4.4 Testing Framework (Google Test)
 
-```bash
-paru -S restbed ftxui
+Google Test and Google Mock are pulled automatically via CMake `FetchContent` at configure
+time. No system package is required.
+
+```cmake
+# Handled in tests/CMakeLists.txt — no manual install needed
+FetchContent_Declare(googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG        v1.14.0)
+FetchContent_MakeAvailable(googletest)
 ```
 
 ---
@@ -322,7 +329,6 @@ Complete mapping of Dockerfile/Debian package names to their Arch/AUR equivalent
 | `libgit2-dev` | `libgit2` | Official | libgit2 headers + libs |
 | `librestbed-dev` | `restbed` | AUR | Restbed HTTP framework |
 | `nlohmann-json3-dev` | `nlohmann-json` | Official | Header-only JSON library |
-| `libftxui-dev` | `ftxui` | AUR | FTXUI terminal UI framework |
 | `postgresql` (runtime) | `postgresql` | Official | PostgreSQL 15+ server — **assumed pre-installed** |
 | `libpq5` (runtime) | `postgresql-libs` | Official | PostgreSQL runtime client library |
 | `libssl3` (runtime) | `openssl` | Official | OpenSSL 3.x runtime |
@@ -342,7 +348,8 @@ paru -S --needed \
     base-devel git cmake ninja gcc \
     postgresql-libs libpqxx \
     openssl libgit2 nlohmann-json \
-    restbed ftxui
+    spdlog \
+    restbed
 
 # 3. Provision database on existing PostgreSQL 15+ instance
 # (adjust connection method if your instance uses TCP/IP auth instead of peer auth)

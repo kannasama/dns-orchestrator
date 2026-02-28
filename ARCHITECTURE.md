@@ -659,49 +659,16 @@ All SQL is executed via `libpqxx` parameterized queries (`pqxx::work::exec_param
 
 ### 4.7 TUI Layer
 
-**Header prefix:** `tui/`
-**Framework:** FTXUI
+> **Note:** The TUI client is maintained as a separate project with its own repository. It communicates exclusively with the REST API defined in §6 — it has no direct database access or shared code with the server beyond the API contract.
+>
+> For the full TUI design — screen hierarchy, key bindings, FTXUI components, and `ApiKeyConfig` loading — see the [TUI Client Design Document](docs/TUI_DESIGN.md).
 
-**Authentication:**
-The TUI uses API key authentication exclusively. There is no interactive login screen. On startup, `TuiApp` loads the API key via `ApiKeyConfig`, validates it against `GET /api/v1/auth/me`, and proceeds directly to `MainScreen`. If the key is absent, expired, or revoked, the TUI prints an error message to stderr and exits with code 1.
+**Summary:**
 
-**API Key Loading (`ApiKeyConfig`):**
-1. Read `DNS_TUI_API_KEY` environment variable
-2. If unset, read `~/.config/dns-orchestrator/credentials` (must be mode `0600`; key on a line `api_key=<value>`)
-3. If neither source yields a key, exit with: `"Error: no API key configured. Set DNS_TUI_API_KEY or create ~/.config/dns-orchestrator/credentials"`
-
-**Screen Hierarchy:**
-```
-TuiApp
-├── (ApiKeyConfig)            ← startup only: loads key, calls GET /auth/me, exits on failure
-├── MainScreen
-│   ├── ViewSwitcher          ← keystroke: Tab cycles through views
-│   ├── ZoneListPane          ← left panel: zones in current view
-│   ├── RecordTablePane       ← right panel: records for selected zone (desired state)
-│   │   ├── RecordEditModal        ← inline edit with Vim bindings (hjkl, i, Esc)
-│   │   └── VariablePickerModal    ← autocomplete for {{var}} insertion
-│   ├── DeploymentHistoryPane ← bottom panel: deployment snapshots for current zone
-│   ├── PreviewScreen         ← full-screen diff view (desired state vs. live provider)
-│   └── StatusBar             ← current view, zone, user, last sync time
-└── AuditLogScreen            ← scrollable audit log viewer
-```
-
-**Key Bindings:**
-
-| Key | Action |
-|-----|--------|
-| `Tab` | Cycle between views (Internal / External / ...) |
-| `j` / `k` | Navigate records up/down |
-| `i` | Enter edit mode on selected record |
-| `Esc` | Cancel edit / close modal |
-| `p` | Open preview diff for current zone (desired state vs. live provider) |
-| `P` | Push desired state for current zone to provider |
-| `r` | Open deployment history for current zone |
-| `?` | Show help overlay |
-| `q` | Quit |
-
-**TUI ↔ API Communication:**
-The TUI communicates with the same REST API as the Web GUI. It does not have direct DB access. This ensures a single code path for all mutations. Every request sent by the TUI includes the `X-API-Key: <raw_key>` header; no session state is maintained between requests.
+- **Framework:** FTXUI
+- **Authentication:** API key only (`X-API-Key` header); no interactive login screen
+- **Communication:** Stateless HTTP requests to the same REST API as the Web GUI
+- **Key loading:** `DNS_TUI_API_KEY` env var or `~/.config/dns-orchestrator/credentials` (mode `0600`)
 
 ---
 
@@ -1458,6 +1425,7 @@ dns-orchestrator/
 │   │   ├── DiffEngine.hpp
 │   │   ├── DeploymentEngine.hpp
 │   │   ├── RollbackEngine.hpp
+│   │   ├── MaintenanceScheduler.hpp
 │   │   └── ThreadPool.hpp
 │   ├── providers/
 │   │   ├── IProvider.hpp           # Pure abstract interface
@@ -1479,24 +1447,12 @@ dns-orchestrator/
 │   │   └── ApiKeyRepository.hpp
 │   ├── gitops/
 │   │   └── GitOpsMirror.hpp
-│   ├── security/
-│   │   ├── CryptoService.hpp
-│   │   └── AuthService.hpp
-│   └── tui/
-│       ├── TuiApp.hpp
-│       ├── ApiKeyConfig.hpp            # Loads API key from env var or credentials file
-│       ├── screens/
-│       │   ├── MainScreen.hpp
-│       │   ├── PreviewScreen.hpp
-│       │   └── AuditLogScreen.hpp
-│       └── components/
-│           ├── ViewSwitcher.hpp
-│           ├── ZoneListPane.hpp
-│           ├── RecordTablePane.hpp
-│           ├── DeploymentHistoryPane.hpp
-│           ├── RecordEditModal.hpp
-│           ├── VariablePickerModal.hpp
-│           └── StatusBar.hpp
+│   └── security/
+│       ├── CryptoService.hpp
+│       ├── AuthService.hpp
+│       ├── IJwtSigner.hpp
+│       ├── HmacJwtSigner.hpp
+│       └── SamlReplayCache.hpp
 │
 ├── src/                            # Implementation files
 │   ├── main.cpp
@@ -1513,6 +1469,7 @@ dns-orchestrator/
 │   │   ├── DiffEngine.cpp
 │   │   ├── DeploymentEngine.cpp
 │   │   ├── RollbackEngine.cpp
+│   │   ├── MaintenanceScheduler.cpp
 │   │   └── ThreadPool.cpp
 │   ├── providers/
 │   │   ├── ProviderFactory.cpp
@@ -1524,15 +1481,11 @@ dns-orchestrator/
 │   │   └── *Repository.cpp             # includes ApiKeyRepository.cpp
 │   ├── gitops/
 │   │   └── GitOpsMirror.cpp
-│   ├── security/
-│   │   ├── CryptoService.cpp
-│   │   └── AuthService.cpp
-│   └── tui/
-│       ├── TuiApp.cpp
-│       ├── screens/
-│       │   └── *.cpp
-│       └── components/
-│           └── *.cpp
+│   └── security/
+│       ├── CryptoService.cpp
+│       ├── AuthService.cpp
+│       ├── HmacJwtSigner.cpp
+│       └── SamlReplayCache.cpp
 │
 ├── tests/
 │   ├── unit/
@@ -1571,7 +1524,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   cmake ninja-build gcc-12 g++-12 \
   libpqxx-dev libssl-dev libgit2-dev \
   librestbed-dev nlohmann-json3-dev \
-  libftxui-dev \
+  libspdlog-dev \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
