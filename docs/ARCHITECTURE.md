@@ -123,7 +123,7 @@ Cross-cutting concerns (logging, error types, configuration) live in a `common/`
 
 ### 4.1 HTTP API Server Layer
 
-**Framework:** Restbed (via `librestbed`)
+**Framework:** Crow (CrowCpp, via CMake FetchContent — no system package required)
 
 **Responsibilities:**
 - Parse and validate incoming HTTP requests
@@ -136,7 +136,7 @@ Cross-cutting concerns (logging, error types, configuration) live in a `common/`
 
 | Class | Header | Responsibility |
 |-------|--------|----------------|
-| `ApiServer` | `api/ApiServer.hpp` | Owns the `restbed::Service` instance; registers all routes at startup |
+| `ApiServer` | `api/ApiServer.hpp` | Owns the Crow application instance; registers all routes at startup |
 | `ProviderRoutes` | `api/routes/ProviderRoutes.hpp` | Handlers for `/api/v1/providers` |
 | `ViewRoutes` | `api/routes/ViewRoutes.hpp` | Handlers for `/api/v1/views` |
 | `ZoneRoutes` | `api/routes/ZoneRoutes.hpp` | Handlers for `/api/v1/zones` |
@@ -1526,7 +1526,7 @@ FROM debian:bookworm-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
   cmake ninja-build gcc-12 g++-12 \
   libpqxx-dev libssl-dev libgit2-dev \
-  librestbed-dev nlohmann-json3-dev \
+  nlohmann-json3-dev \
   libspdlog-dev \
   && rm -rf /var/lib/apt/lists/*
 
@@ -1542,7 +1542,7 @@ RUN cmake -B build -G Ninja \
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  libpq5 libssl3 libgit2-1.5 librestbed0 \
+  libpq5 libssl3 libgit2-1.5 \
   && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --no-create-home dns-orchestrator
