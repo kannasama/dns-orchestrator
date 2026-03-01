@@ -2,10 +2,14 @@
 
 #include "common/Errors.hpp"
 
+#include <openssl/core_names.h>
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
+#include <openssl/kdf.h>
+#include <openssl/params.h>
 #include <openssl/rand.h>
 
+#include <cstdio>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -321,6 +325,175 @@ std::string CryptoService::hashApiKey(const std::string& sRawKey) {
     oss << std::setw(2) << static_cast<int>(vHash[i]);
   }
   return oss.str();
+}
+
+// ── SHA-256 ────────────────────────────────────────────────────────────────
+
+std::string CryptoService::sha256Hex(const std::string& sInput) {
+  unsigned char vHash[EVP_MAX_MD_SIZE];
+  unsigned int uHashLen = 0;
+
+  EVP_MD_CTX* pCtx = EVP_MD_CTX_new();
+  if (!pCtx) {
+    throw std::runtime_error("Failed to create digest context");
+  }
+
+  if (EVP_DigestInit_ex(pCtx, EVP_sha256(), nullptr) != 1 ||
+      EVP_DigestUpdate(pCtx, sInput.data(), sInput.size()) != 1 ||
+      EVP_DigestFinal_ex(pCtx, vHash, &uHashLen) != 1) {
+    EVP_MD_CTX_free(pCtx);
+    throw std::runtime_error("SHA-256 hash computation failed");
+  }
+
+  EVP_MD_CTX_free(pCtx);
+
+  std::ostringstream oss;
+  oss << std::hex << std::setfill('0');
+  for (unsigned int i = 0; i < uHashLen; ++i) {
+    oss << std::setw(2) << static_cast<int>(vHash[i]);
+  }
+  return oss.str();
+}
+
+// ── Argon2id password hashing ──────────────────────────────────────────────
+
+namespace {
+constexpr uint32_t kArgon2MemoryCost = 65536;  // 64 MiB
+constexpr uint32_t kArgon2TimeCost = 3;         // 3 iterations
+constexpr uint32_t kArgon2Parallelism = 1;      // 1 lane
+constexpr int kArgon2SaltLen = 16;              // 16 bytes
+constexpr int kArgon2HashLen = 32;              // 32 bytes
+}  // namespace
+
+std::string CryptoService::hashPassword(const std::string& sPassword) {
+  // Generate random salt
+  std::vector<unsigned char> vSalt(kArgon2SaltLen);
+  if (RAND_bytes(vSalt.data(), kArgon2SaltLen) != 1) {
+    throw std::runtime_error("Failed to generate random salt");
+  }
+
+  // Derive hash using EVP_KDF Argon2id
+  EVP_KDF* pKdf = EVP_KDF_fetch(nullptr, "ARGON2ID", nullptr);
+  if (!pKdf) {
+    throw std::runtime_error("Failed to fetch ARGON2ID KDF (requires OpenSSL >= 3.2)");
+  }
+
+  EVP_KDF_CTX* pCtx = EVP_KDF_CTX_new(pKdf);
+  EVP_KDF_free(pKdf);
+  if (!pCtx) {
+    throw std::runtime_error("Failed to create KDF context");
+  }
+
+  std::vector<unsigned char> vHash(kArgon2HashLen);
+
+  OSSL_PARAM params[] = {
+      OSSL_PARAM_construct_octet_string(
+          OSSL_KDF_PARAM_PASSWORD,
+          const_cast<char*>(sPassword.data()),
+          sPassword.size()),
+      OSSL_PARAM_construct_octet_string(
+          OSSL_KDF_PARAM_SALT,
+          vSalt.data(),
+          vSalt.size()),
+      OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, const_cast<uint32_t*>(&kArgon2TimeCost)),
+      OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, const_cast<uint32_t*>(&kArgon2MemoryCost)),
+      OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, const_cast<uint32_t*>(&kArgon2Parallelism)),
+      OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, const_cast<uint32_t*>(&kArgon2Parallelism)),
+      OSSL_PARAM_construct_end(),
+  };
+
+  if (EVP_KDF_derive(pCtx, vHash.data(), vHash.size(), params) != 1) {
+    EVP_KDF_CTX_free(pCtx);
+    throw std::runtime_error("Argon2id key derivation failed");
+  }
+
+  EVP_KDF_CTX_free(pCtx);
+
+  // Encode salt and hash as base64 (no padding, no newlines)
+  std::string sSaltB64 = base64UrlEncode(vSalt);
+  std::string sHashB64 = base64UrlEncode(vHash);
+
+  // Format as PHC string
+  return "$argon2id$v=19$m=" + std::to_string(kArgon2MemoryCost) +
+         ",t=" + std::to_string(kArgon2TimeCost) +
+         ",p=" + std::to_string(kArgon2Parallelism) +
+         "$" + sSaltB64 + "$" + sHashB64;
+}
+
+bool CryptoService::verifyPassword(const std::string& sPassword, const std::string& sHash) {
+  // Parse PHC string: $argon2id$v=19$m=65536,t=3,p=1$<salt>$<hash>
+  // Split on '$' — fields: [0]="" [1]="argon2id" [2]="v=19" [3]="m=...,t=...,p=..." [4]=salt [5]=hash
+  std::vector<std::string> vParts;
+  std::istringstream iss(sHash);
+  std::string sPart;
+  while (std::getline(iss, sPart, '$')) {
+    vParts.push_back(sPart);
+  }
+
+  if (vParts.size() != 6 || vParts[1] != "argon2id") {
+    return false;
+  }
+
+  // Parse parameters from vParts[3]: "m=65536,t=3,p=1"
+  uint32_t uMemory = 0, uTime = 0, uParallelism = 0;
+  if (std::sscanf(vParts[3].c_str(), "m=%u,t=%u,p=%u", &uMemory, &uTime, &uParallelism) != 3) {
+    return false;
+  }
+
+  // Decode salt from base64url
+  // Re-add padding for base64 decode
+  std::string sSaltB64 = vParts[4];
+  for (auto& c : sSaltB64) {
+    if (c == '-') c = '+';
+    else if (c == '_') c = '/';
+  }
+  while (sSaltB64.size() % 4 != 0) sSaltB64 += '=';
+  auto vSalt = base64Decode(sSaltB64);
+
+  // Decode stored hash from base64url
+  std::string sStoredB64 = vParts[5];
+  for (auto& c : sStoredB64) {
+    if (c == '-') c = '+';
+    else if (c == '_') c = '/';
+  }
+  while (sStoredB64.size() % 4 != 0) sStoredB64 += '=';
+  auto vStoredHash = base64Decode(sStoredB64);
+
+  // Re-derive hash with parsed params and extracted salt
+  EVP_KDF* pKdf = EVP_KDF_fetch(nullptr, "ARGON2ID", nullptr);
+  if (!pKdf) return false;
+
+  EVP_KDF_CTX* pCtx = EVP_KDF_CTX_new(pKdf);
+  EVP_KDF_free(pKdf);
+  if (!pCtx) return false;
+
+  std::vector<unsigned char> vDerived(vStoredHash.size());
+
+  OSSL_PARAM params[] = {
+      OSSL_PARAM_construct_octet_string(
+          OSSL_KDF_PARAM_PASSWORD,
+          const_cast<char*>(sPassword.data()),
+          sPassword.size()),
+      OSSL_PARAM_construct_octet_string(
+          OSSL_KDF_PARAM_SALT,
+          vSalt.data(),
+          vSalt.size()),
+      OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &uTime),
+      OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &uMemory),
+      OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &uParallelism),
+      OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &uParallelism),
+      OSSL_PARAM_construct_end(),
+  };
+
+  if (EVP_KDF_derive(pCtx, vDerived.data(), vDerived.size(), params) != 1) {
+    EVP_KDF_CTX_free(pCtx);
+    return false;
+  }
+
+  EVP_KDF_CTX_free(pCtx);
+
+  // Constant-time comparison
+  return CRYPTO_memcmp(vDerived.data(), vStoredHash.data(), vStoredHash.size()) == 0;
 }
 
 }  // namespace dns::security

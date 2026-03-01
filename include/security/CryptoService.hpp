@@ -31,6 +31,19 @@ class CryptoService {
   /// Hash a raw API key with SHA-512 → hex string (128 chars).
   static std::string hashApiKey(const std::string& sRawKey);
 
+  /// SHA-256 hash → 64-char lowercase hex string.
+  /// Used to hash JWTs for session table lookups.
+  static std::string sha256Hex(const std::string& sInput);
+
+  /// Hash a password with Argon2id → PHC-formatted string.
+  /// Format: $argon2id$v=19$m=65536,t=3,p=1$<base64_salt>$<base64_hash>
+  static std::string hashPassword(const std::string& sPassword);
+
+  /// Verify a password against a PHC-formatted Argon2id hash.
+  /// Returns true if the password matches, false otherwise.
+  /// Uses constant-time comparison for the hash.
+  static bool verifyPassword(const std::string& sPassword, const std::string& sHash);
+
  private:
   std::vector<unsigned char> _vMasterKey;  // raw 32 bytes
 

@@ -99,3 +99,58 @@ TEST(CryptoServiceTest, RejectsInvalidMasterKeyLength) {
   EXPECT_THROW(CryptoService("too-short"), std::runtime_error);
   EXPECT_THROW(CryptoService(""), std::runtime_error);
 }
+
+// ── SHA-256 tests ──────────────────────────────────────────────────────────
+
+TEST(CryptoServiceTest, Sha256HexReturns64CharHexString) {
+  std::string sHash = CryptoService::sha256Hex("hello world");
+  EXPECT_EQ(sHash.size(), 64u);
+  for (char c : sHash) {
+    EXPECT_TRUE((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))
+        << "Unexpected character in SHA-256 hash: " << c;
+  }
+}
+
+TEST(CryptoServiceTest, Sha256HexIsDeterministic) {
+  EXPECT_EQ(CryptoService::sha256Hex("test"), CryptoService::sha256Hex("test"));
+}
+
+TEST(CryptoServiceTest, Sha256HexDifferentInputsDiffer) {
+  EXPECT_NE(CryptoService::sha256Hex("one"), CryptoService::sha256Hex("two"));
+}
+
+TEST(CryptoServiceTest, Sha256HexKnownVector) {
+  // SHA-256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+  EXPECT_EQ(CryptoService::sha256Hex(""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+}
+
+// ── Argon2id tests ─────────────────────────────────────────────────────────
+
+TEST(CryptoServiceTest, HashPasswordReturnsPHCString) {
+  std::string sHash = CryptoService::hashPassword("MyP@ssw0rd!");
+  // PHC format: $argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>
+  EXPECT_EQ(sHash.substr(0, 10), "$argon2id$");
+}
+
+TEST(CryptoServiceTest, HashPasswordProducesUniqueSalts) {
+  std::string sHash1 = CryptoService::hashPassword("same-password");
+  std::string sHash2 = CryptoService::hashPassword("same-password");
+  EXPECT_NE(sHash1, sHash2);  // different salts → different hashes
+}
+
+TEST(CryptoServiceTest, VerifyPasswordCorrect) {
+  std::string sHash = CryptoService::hashPassword("correct-horse-battery-staple");
+  EXPECT_TRUE(CryptoService::verifyPassword("correct-horse-battery-staple", sHash));
+}
+
+TEST(CryptoServiceTest, VerifyPasswordWrong) {
+  std::string sHash = CryptoService::hashPassword("right-password");
+  EXPECT_FALSE(CryptoService::verifyPassword("wrong-password", sHash));
+}
+
+TEST(CryptoServiceTest, VerifyPasswordEmptyPasswordWorks) {
+  std::string sHash = CryptoService::hashPassword("");
+  EXPECT_TRUE(CryptoService::verifyPassword("", sHash));
+  EXPECT_FALSE(CryptoService::verifyPassword("not-empty", sHash));
+}
