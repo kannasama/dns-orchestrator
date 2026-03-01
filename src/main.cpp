@@ -5,10 +5,15 @@
 
 #include "common/Config.hpp"
 #include "common/Logger.hpp"
+#include "core/MaintenanceScheduler.hpp"
+#include "dal/ApiKeyRepository.hpp"
 #include "dal/ConnectionPool.hpp"
+#include "dal/SessionRepository.hpp"
+#include "dal/UserRepository.hpp"
 #include "security/CryptoService.hpp"
 #include "security/HmacJwtSigner.hpp"
 #include "security/IJwtSigner.hpp"
+#include "security/SamlReplayCache.hpp"
 
 #include <openssl/crypto.h>
 
@@ -59,16 +64,59 @@ int main() {
     // ── Step 5: Foundation ready ─────────────────────────────────────────
     spLog->info("Step 5: Foundation layer ready");
 
-    // ── Steps 6-12: Deferred to future phases ────────────────────────────
+    // ── Step 6: GitOpsMirror — deferred to Phase 7 ────────────────────────
     spLog->warn("Step 6: GitOpsMirror — not yet implemented");
+
+    // ── Step 7: ThreadPool — deferred to Phase 7 ──────────────────────────
     spLog->warn("Step 7: ThreadPool — not yet implemented");
-    spLog->warn("Step 7a: MaintenanceScheduler — not yet implemented");
-    spLog->warn("Step 8: SamlReplayCache — not yet implemented");
+
+    // ── Step 7a: Initialize MaintenanceScheduler ──────────────────────────
+    auto urRepo = std::make_unique<dns::dal::UserRepository>(*cpPool);
+    auto srRepo = std::make_unique<dns::dal::SessionRepository>(*cpPool);
+    auto akrRepo = std::make_unique<dns::dal::ApiKeyRepository>(*cpPool);
+
+    auto msScheduler = std::make_unique<dns::core::MaintenanceScheduler>();
+
+    msScheduler->schedule("session-flush",
+                          std::chrono::seconds(cfgApp.iSessionCleanupIntervalSeconds),
+                          [&srRepo]() {
+                            int iDeleted = srRepo->pruneExpired();
+                            if (iDeleted > 0) {
+                              auto spLog = dns::common::Logger::get();
+                              spLog->info("Session flush: deleted {} expired sessions", iDeleted);
+                            }
+                          });
+
+    msScheduler->schedule("api-key-cleanup",
+                          std::chrono::seconds(cfgApp.iApiKeyCleanupIntervalSeconds),
+                          [&akrRepo]() {
+                            int iDeleted = akrRepo->pruneScheduled();
+                            if (iDeleted > 0) {
+                              auto spLog = dns::common::Logger::get();
+                              spLog->info("API key cleanup: deleted {} scheduled keys", iDeleted);
+                            }
+                          });
+
+    msScheduler->start();
+    spLog->info("Step 7a: MaintenanceScheduler started (session flush every {}s, "
+                "API key cleanup every {}s)",
+                cfgApp.iSessionCleanupIntervalSeconds,
+                cfgApp.iApiKeyCleanupIntervalSeconds);
+
+    // ── Step 8: Initialize SamlReplayCache ────────────────────────────────
+    auto srcCache = std::make_unique<dns::security::SamlReplayCache>();
+    spLog->info("Step 8: SamlReplayCache initialized");
+
+    // ── Steps 9-12: Deferred to future phases ─────────────────────────────
     spLog->warn("Step 9: ProviderFactory — not yet implemented");
     spLog->warn("Step 10: API routes — not yet implemented");
     spLog->warn("Step 11: HTTP server — not yet implemented");
 
-    spLog->info("dns-orchestrator ready (foundation mode — API server not started)");
+    spLog->info("dns-orchestrator ready (auth layer active — API server not started)");
+
+    // Graceful shutdown
+    msScheduler->stop();
+    spLog->info("MaintenanceScheduler stopped");
 
     return EXIT_SUCCESS;
   } catch (const std::exception& ex) {
