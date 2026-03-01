@@ -1,15 +1,28 @@
+#include <atomic>
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 
+#include "api/ApiServer.hpp"
+#include "api/AuthMiddleware.hpp"
 #include "common/Config.hpp"
 #include "common/Logger.hpp"
 #include "core/MaintenanceScheduler.hpp"
 #include "dal/ApiKeyRepository.hpp"
+#include "dal/AuditRepository.hpp"
 #include "dal/ConnectionPool.hpp"
+#include "dal/DeploymentRepository.hpp"
+#include "dal/ProviderRepository.hpp"
+#include "dal/RecordRepository.hpp"
 #include "dal/SessionRepository.hpp"
 #include "dal/UserRepository.hpp"
+#include "dal/VariableRepository.hpp"
+#include "dal/ViewRepository.hpp"
+#include "dal/ZoneRepository.hpp"
+#include "security/AuthService.hpp"
 #include "security/CryptoService.hpp"
 #include "security/HmacJwtSigner.hpp"
 #include "security/IJwtSigner.hpp"
@@ -19,7 +32,8 @@
 
 // Startup sequence from ARCHITECTURE.md §11.4
 //
-// Phase 2 implements steps 1-5. Steps 6-12 remain as stubs.
+// Phase 2 implements steps 1-5. Phase 4 adds steps 6-8.
+// Phase 5 adds steps 9-11.
 
 int main() {
   try {
@@ -107,16 +121,60 @@ int main() {
     auto srcCache = std::make_unique<dns::security::SamlReplayCache>();
     spLog->info("Step 8: SamlReplayCache initialized");
 
-    // ── Steps 9-12: Deferred to future phases ─────────────────────────────
+    // ── Step 9: ProviderFactory — deferred to Phase 6 ───────────────────────
     spLog->warn("Step 9: ProviderFactory — not yet implemented");
-    spLog->warn("Step 10: API routes — not yet implemented");
-    spLog->warn("Step 11: HTTP server — not yet implemented");
 
-    spLog->info("dns-orchestrator ready (auth layer active — API server not started)");
+    // ── Step 10: Construct repositories and API routes ──────────────────────
+    auto prRepo = std::make_unique<dns::dal::ProviderRepository>(*cpPool, *csService);
+    auto vrRepo = std::make_unique<dns::dal::ViewRepository>(*cpPool);
+    auto zrRepo = std::make_unique<dns::dal::ZoneRepository>(*cpPool);
+    auto varRepo = std::make_unique<dns::dal::VariableRepository>(*cpPool);
+    auto rrRepo = std::make_unique<dns::dal::RecordRepository>(*cpPool);
+    auto drRepo = std::make_unique<dns::dal::DeploymentRepository>(*cpPool);
+    auto arRepo = std::make_unique<dns::dal::AuditRepository>(*cpPool);
+
+    auto asService = std::make_unique<dns::security::AuthService>(
+        *urRepo, *srRepo, *upSigner,
+        cfgApp.iJwtTtlSeconds, cfgApp.iSessionAbsoluteTtlSeconds);
+
+    auto amMiddleware = std::make_unique<dns::api::AuthMiddleware>(
+        *upSigner, *srRepo, *akrRepo, *urRepo,
+        cfgApp.iJwtTtlSeconds, cfgApp.iApiKeyCleanupGraceSeconds);
+
+    auto apiServer = std::make_unique<dns::api::ApiServer>(
+        *asService, *amMiddleware,
+        *prRepo, *vrRepo, *zrRepo, *varRepo, *rrRepo, *drRepo, *arRepo,
+        cfgApp.iAuditRetentionDays);
+    apiServer->registerRoutes();
+    spLog->info("Step 10: API routes registered");
+
+    // ── Step 11: Start HTTP server ──────────────────────────────────────────
+    spLog->info("Step 11: Starting HTTP server on port {}", cfgApp.iHttpPort);
+
+    // Run server in a separate thread so we can handle shutdown
+    std::thread tServer([&]() {
+      apiServer->start(cfgApp.iHttpPort, cfgApp.iHttpThreads);
+    });
+
+    // Wait for SIGINT/SIGTERM
+    std::signal(SIGINT, [](int) {});
+    std::signal(SIGTERM, [](int) {});
+    sigset_t stSigSet;
+    sigemptyset(&stSigSet);
+    sigaddset(&stSigSet, SIGINT);
+    sigaddset(&stSigSet, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &stSigSet, nullptr);
+    int iSig = 0;
+    sigwait(&stSigSet, &iSig);
+
+    spLog->info("Received signal {}, shutting down...", iSig);
+    apiServer->stop();
+    tServer.join();
 
     // Graceful shutdown
     msScheduler->stop();
     spLog->info("MaintenanceScheduler stopped");
+    spLog->info("dns-orchestrator shutdown complete");
 
     return EXIT_SUCCESS;
   } catch (const std::exception& ex) {
