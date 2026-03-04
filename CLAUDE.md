@@ -7,9 +7,11 @@ architectural decisions, and development roadmap so context transfers across mac
 
 ## Project Status
 
-- **Phases 1–3 complete:** skeleton, foundation layer, 38 unit tests passing (commit `125a19a`)
-- **Phase 3.5 complete:** HTTP library migration to Crow (CrowCpp v1.3.1) done
-- **Next task:** Phase 4 — Authentication & Authorisation
+- **Phases 1–3 complete:** skeleton, foundation layer
+- **Phase 3.5 complete:** HTTP library migration to Crow (CrowCpp v1.3.1)
+- **Phase 4 complete:** Authentication & Authorisation (commit `efaa82f`)
+- **Next task:** Phase 5 — DAL: Core Repositories
+- **Tests:** 43 total (39 pass, 4 skip — DB integration tests need `DNS_DB_URL`)
 
 Build and test:
 ```bash
@@ -18,11 +20,9 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Startup sequence: steps 1–5 wired in `src/main.cpp`. Steps 6–12 deferred (warn-logged):
+Startup sequence: steps 1–5, 7a, 8 wired in `src/main.cpp`. Remaining deferred (warn-logged):
 - Step 6: GitOpsMirror → Phase 7
 - Step 7: ThreadPool → Phase 7
-- Step 7a: MaintenanceScheduler → Phase 4
-- Step 8: SamlReplayCache → Phase 4
 - Step 9: ProviderFactory → Phase 6
 - Steps 10–12: API routes + HTTP server + background tasks → Phases 5–7
 
@@ -67,24 +67,24 @@ build/docs change — no HTTP framework types existed in source files, making th
 
 ---
 
-### Phase 4 — Authentication & Authorisation
+### Phase 4 — Authentication & Authorisation ← COMPLETE
 
-**Goal:** Production-grade auth before any data or provider work.
+**Summary:** Production-grade auth layer with local login (Argon2id), JWT sessions, API key
+authentication, role-based access control, and background maintenance tasks.
 
-- `src/security/AuthService.cpp` — local auth (Argon2id), `authenticateLocal()`, `validateToken()`,
-  `validateApiKey()`
-- `src/dal/UserRepository.cpp` — users, groups, group_members CRUD
-- `src/dal/SessionRepository.cpp` — `create()`, `exists()`, `touch()`, `pruneExpired()`
-- `src/dal/ApiKeyRepository.cpp` — `create()`, `validate()`, `revoke()`, `deletePending()`
-- `src/api/AuthMiddleware.cpp` — JWT + API key validation → `RequestContext`
-- `src/api/AuthRoutes.cpp` — `POST /api/v1/auth/login`, `/logout`, `/refresh`
-- `src/core/MaintenanceScheduler.cpp` — jthread + condvar; session prune + API key cleanup tasks
-- `src/main.cpp` — wire startup steps 7a, 8
+**Deliverables:**
+- `src/security/AuthService.cpp` — `authenticateLocal()`, `validateToken()` with sliding + absolute TTL
+- `src/security/SamlReplayCache.cpp` — in-memory replay detection with TTL eviction
+- `src/dal/UserRepository.cpp` — `findByUsername()`, `findById()`, `create()`, `getHighestRole()`
+- `src/dal/SessionRepository.cpp` — `create()`, `touch()`, `exists()`, `isValid()`,
+  `deleteByHash()`, `pruneExpired()`
+- `src/dal/ApiKeyRepository.cpp` — `create()`, `findByHash()`, `scheduleDelete()`, `pruneScheduled()`
+- `src/api/AuthMiddleware.cpp` — dual-mode JWT + API key → `RequestContext`
+- `src/api/routes/AuthRoutes.cpp` — `POST /login`, `POST /logout`, `GET /me`
+- `src/core/MaintenanceScheduler.cpp` — jthread + condvar; session prune + API key cleanup
+- `src/main.cpp` — wired startup steps 7a (MaintenanceScheduler) and 8 (SamlReplayCache)
 
-Reuse: `HmacJwtSigner` (complete), `CryptoService::generateApiKey()` + `hashApiKey()` (complete),
-`Config` fields `iJwtTtlSeconds`, `iSessionAbsoluteTtlSeconds`, `iApiKeyCleanupGraceSeconds`.
-
-**Verification:** 401 on protected route without token; 200 with valid JWT.
+**Tests:** 9 auth-related tests (unit + integration)
 
 ---
 
@@ -207,7 +207,8 @@ only for non-owning references.
 | `docs/TUI_DESIGN.md` | TUI client design spec |
 | `scripts/db/001_initial_schema.sql` | Full PostgreSQL schema (11 tables) |
 | `scripts/db/002_add_indexes.sql` | 11 performance indexes |
-| `src/main.cpp` | Startup sequence (steps 1–5 done, 6–12 deferred) |
-| `include/common/Types.hpp` | Core data types: `DnsRecord`, `PreviewResult`, etc. |
+| `src/main.cpp` | Startup sequence (steps 1–5, 7a, 8 done; 6, 7, 9–12 deferred) |
+| `include/common/Types.hpp` | Core data types: `DnsRecord`, `PreviewResult`, `RequestContext` |
 | `include/common/Errors.hpp` | `AppError` hierarchy |
-| `tests/unit/` | 6 test files, 38 passing unit tests |
+| `tests/unit/` | Unit tests (MaintenanceScheduler, SamlReplayCache, JWT, Crypto) |
+| `tests/integration/` | Integration tests (AuthService, AuthMiddleware, repositories) |
