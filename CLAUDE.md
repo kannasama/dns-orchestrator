@@ -10,21 +10,22 @@ architectural decisions, and development roadmap so context transfers across mac
 - **Phases 1–3 complete:** skeleton, foundation layer
 - **Phase 3.5 complete:** HTTP library migration to Crow (CrowCpp v1.3.1)
 - **Phase 4 complete:** Authentication & Authorisation (commit `efaa82f`)
-- **Next task:** Phase 5 — DAL: Core Repositories
-- **Tests:** 43 total (39 pass, 4 skip — DB integration tests need `DNS_DB_URL`)
+- **Phase 5 complete:** DAL: Core Repositories + CRUD API Routes
+- **Next task:** Phase 6 — PowerDNS Provider + Core Engines
+- **Tests:** 129 total (58 pass, 71 skip — DB integration tests need `DNS_DB_URL`)
 
 Build and test:
 ```bash
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+build/tests/dns-tests
 ```
 
-Startup sequence: steps 1–5, 7a, 8 wired in `src/main.cpp`. Remaining deferred (warn-logged):
+Startup sequence: steps 1–5, 7a, 8, 10, 11 wired in `src/main.cpp`. Remaining deferred:
 - Step 6: GitOpsMirror → Phase 7
 - Step 7: ThreadPool → Phase 7
 - Step 9: ProviderFactory → Phase 6
-- Steps 10–12: API routes + HTTP server + background tasks → Phases 5–7
+- Step 12: Background task queue → Phase 7
 
 ---
 
@@ -88,20 +89,29 @@ authentication, role-based access control, and background maintenance tasks.
 
 ---
 
-### Phase 5 — DAL: Core Repositories
+### Phase 5 — DAL: Core Repositories + CRUD API Routes ← COMPLETE
 
-**Goal:** All entities persist to PostgreSQL; basic CRUD endpoints work.
+**Summary:** All remaining DAL repositories implemented with full CRUD. HTTP server starts and
+serves requests. All entities persist to PostgreSQL with encrypted provider tokens.
 
-- `src/dal/ProviderRepository.cpp` — with `CryptoService::encrypt/decrypt` for tokens
-- `src/dal/ZoneRepository.cpp`
-- `src/dal/ViewRepository.cpp` — includes `view_providers` join table
-- `src/dal/VariableRepository.cpp`
-- `src/dal/RecordRepository.cpp`
-- `src/dal/DeploymentRepository.cpp` — snapshot versioning + retention
-- `src/dal/AuditRepository.cpp` — append-only + `purgeOld()`
-- `src/api/ApiServer.cpp` + basic CRUD routes for providers, zones, views, variables
+**Deliverables:**
+- `src/dal/ProviderRepository.cpp` — CRUD with `CryptoService::encrypt/decrypt` for tokens
+- `src/dal/ViewRepository.cpp` — CRUD + `view_providers` attach/detach
+- `src/dal/ZoneRepository.cpp` — CRUD with view FK, deployment retention
+- `src/dal/RecordRepository.cpp` — CRUD with raw `{{var}}` templates
+- `src/dal/VariableRepository.cpp` — CRUD with scope/zone logic, global uniqueness enforcement
+- `src/dal/DeploymentRepository.cpp` — snapshot versioning with auto-seq + retention pruning
+- `src/dal/AuditRepository.cpp` — append-only insert, dynamic query, purgeOld with self-audit
+- `src/api/routes/ProviderRoutes.cpp` — 5 endpoints (GET list, POST, GET/{id}, PUT, DELETE)
+- `src/api/routes/ViewRoutes.cpp` — 7 endpoints (CRUD + attach/detach providers)
+- `src/api/routes/ZoneRoutes.cpp` — 5 endpoints (CRUD + view_id filter)
+- `src/api/routes/RecordRoutes.cpp` — 5 endpoints (nested under /zones/{id}/records)
+- `src/api/routes/VariableRoutes.cpp` — 5 endpoints (CRUD + scope/zone_id filters)
+- `src/api/ApiServer.cpp` — registers all route classes, starts Crow HTTP server
+- `src/main.cpp` — wired steps 10 (API routes) and 11 (HTTP server), signal handling,
+  audit purge maintenance task
 
-Reuse: `ConnectionGuard` RAII (complete), `AppError` hierarchy for pqxx exception mapping.
+**Tests:** 86 new tests (7 repository suites + 1 CRUD routes suite, all DB-integration)
 
 ---
 
@@ -207,7 +217,7 @@ only for non-owning references.
 | `docs/TUI_DESIGN.md` | TUI client design spec |
 | `scripts/db/001_initial_schema.sql` | Full PostgreSQL schema (11 tables) |
 | `scripts/db/002_add_indexes.sql` | 11 performance indexes |
-| `src/main.cpp` | Startup sequence (steps 1–5, 7a, 8 done; 6, 7, 9–12 deferred) |
+| `src/main.cpp` | Startup sequence (steps 1–5, 7a, 8, 10, 11 done; 6, 7, 9, 12 deferred) |
 | `include/common/Types.hpp` | Core data types: `DnsRecord`, `PreviewResult`, `RequestContext` |
 | `include/common/Errors.hpp` | `AppError` hierarchy |
 | `tests/unit/` | Unit tests (MaintenanceScheduler, SamlReplayCache, JWT, Crypto) |
