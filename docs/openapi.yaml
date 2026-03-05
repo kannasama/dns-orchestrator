@@ -1,0 +1,1414 @@
+openapi: 3.1.0
+info:
+  title: DNS Orchestrator API
+  version: 0.1.0
+  description: |
+    Multi-provider DNS management platform with variable templating,
+    deployment snapshots, rollback, and GitOps mirroring.
+
+servers:
+  - url: /api/v1
+    description: Default API prefix
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code slug
+        message:
+          type: string
+          description: Human-readable error message
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          maxLength: 128
+        password:
+          type: string
+          maxLength: 1024
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT bearer token
+
+    UserInfo:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        username:
+          type: string
+        role:
+          type: string
+          enum: [admin, operator, viewer]
+        auth_method:
+          type: string
+          enum: [jwt, api_key]
+
+    Provider:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          maxLength: 128
+        type:
+          type: string
+          enum: [powerdns, cloudflare, digitalocean]
+        api_endpoint:
+          type: string
+        token:
+          type: string
+          description: Decrypted token (only on GET by ID)
+        created_at:
+          type: integer
+          description: Unix epoch seconds
+        updated_at:
+          type: integer
+          description: Unix epoch seconds
+
+    ProviderCreate:
+      type: object
+      required: [name, type, api_endpoint, token]
+      properties:
+        name:
+          type: string
+          maxLength: 128
+        type:
+          type: string
+          enum: [powerdns, cloudflare, digitalocean]
+        api_endpoint:
+          type: string
+        token:
+          type: string
+
+    ProviderUpdate:
+      type: object
+      required: [name, api_endpoint]
+      properties:
+        name:
+          type: string
+          maxLength: 128
+        api_endpoint:
+          type: string
+        token:
+          type: string
+          description: Optional — omit to keep existing token
+
+    View:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        provider_ids:
+          type: array
+          items:
+            type: integer
+        created_at:
+          type: integer
+
+    ViewCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    Zone:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          maxLength: 253
+        view_id:
+          type: integer
+        deployment_retention:
+          type: integer
+          nullable: true
+        created_at:
+          type: integer
+
+    ZoneCreate:
+      type: object
+      required: [name, view_id]
+      properties:
+        name:
+          type: string
+          maxLength: 253
+        view_id:
+          type: integer
+        deployment_retention:
+          type: integer
+          nullable: true
+
+    Record:
+      type: object
+      properties:
+        id:
+          type: integer
+        zone_id:
+          type: integer
+        name:
+          type: string
+          maxLength: 253
+        type:
+          type: string
+          enum: [A, AAAA, CNAME, MX, TXT, SRV, NS, PTR]
+        ttl:
+          type: integer
+          minimum: 1
+          maximum: 604800
+        value_template:
+          type: string
+          maxLength: 4096
+        priority:
+          type: integer
+        last_audit_id:
+          type: integer
+          nullable: true
+        created_at:
+          type: integer
+        updated_at:
+          type: integer
+
+    RecordCreate:
+      type: object
+      required: [name, type, value_template]
+      properties:
+        name:
+          type: string
+          maxLength: 253
+        type:
+          type: string
+          enum: [A, AAAA, CNAME, MX, TXT, SRV, NS, PTR]
+        ttl:
+          type: integer
+          minimum: 1
+          maximum: 604800
+          default: 300
+        value_template:
+          type: string
+          maxLength: 4096
+        priority:
+          type: integer
+          default: 0
+
+    Variable:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          maxLength: 64
+        value:
+          type: string
+          maxLength: 4096
+        type:
+          type: string
+        scope:
+          type: string
+        zone_id:
+          type: integer
+          nullable: true
+        created_at:
+          type: integer
+        updated_at:
+          type: integer
+
+    VariableCreate:
+      type: object
+      required: [name, value, type]
+      properties:
+        name:
+          type: string
+          maxLength: 64
+          pattern: "^[A-Za-z0-9_]+$"
+        value:
+          type: string
+          maxLength: 4096
+        type:
+          type: string
+        scope:
+          type: string
+          default: global
+        zone_id:
+          type: integer
+          nullable: true
+
+    PreviewResult:
+      type: object
+      properties:
+        zone_id:
+          type: integer
+        zone_name:
+          type: string
+        has_drift:
+          type: boolean
+        diffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecordDiff"
+
+    RecordDiff:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [add, update, delete, drift]
+        name:
+          type: string
+        type:
+          type: string
+        source_value:
+          type: string
+        provider_value:
+          type: string
+
+    DeploymentSnapshot:
+      type: object
+      properties:
+        id:
+          type: integer
+        zone_id:
+          type: integer
+        deployed_by:
+          type: integer
+        deployed_at:
+          type: integer
+        seq:
+          type: integer
+        snapshot:
+          type: object
+
+    DeploymentDiff:
+      type: object
+      properties:
+        deployment_id:
+          type: integer
+        zone_id:
+          type: integer
+        diffs:
+          type: array
+          items:
+            type: object
+            properties:
+              action:
+                type: string
+                enum: [added, removed, changed]
+              record:
+                type: object
+              current:
+                type: object
+              snapshot:
+                type: object
+
+    RollbackRequest:
+      type: object
+      properties:
+        cherry_pick_ids:
+          type: array
+          items:
+            type: integer
+          description: Optional — omit for full restore
+
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        entity_type:
+          type: string
+        operation:
+          type: string
+        identity:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        entity_id:
+          type: integer
+        old_value:
+          type: object
+        new_value:
+          type: object
+        variable_used:
+          type: string
+        auth_method:
+          type: string
+        ip_address:
+          type: string
+
+    IdResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    PurgeResult:
+      type: object
+      properties:
+        deleted:
+          type: integer
+        oldest_remaining:
+          type: string
+          format: date-time
+          nullable: true
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /auth/local/login:
+    post:
+      summary: Authenticate with username and password
+      description: Rate limited to 5 requests per minute per IP address.
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/local/logout:
+    post:
+      summary: Log out (invalidate session)
+      tags: [Auth]
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/me:
+    get:
+      summary: Get current user info
+      tags: [Auth]
+      responses:
+        "200":
+          description: Current user details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfo"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /providers:
+    get:
+      summary: List all providers
+      tags: [Providers]
+      description: "Required role: viewer"
+      responses:
+        "200":
+          description: List of providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Provider"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: Create a provider
+      tags: [Providers]
+      description: "Required role: admin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderCreate"
+      responses:
+        "201":
+          description: Provider created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Insufficient role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /providers/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Get a provider by ID
+      tags: [Providers]
+      description: "Required role: viewer. Returns decrypted token."
+      responses:
+        "200":
+          description: Provider details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Provider"
+        "404":
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: Update a provider
+      tags: [Providers]
+      description: "Required role: admin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderUpdate"
+      responses:
+        "200":
+          description: Provider updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Delete a provider
+      tags: [Providers]
+      description: "Required role: admin"
+      responses:
+        "200":
+          description: Provider deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "404":
+          description: Provider not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /views:
+    get:
+      summary: List all views
+      tags: [Views]
+      description: "Required role: viewer"
+      responses:
+        "200":
+          description: List of views
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/View"
+    post:
+      summary: Create a view
+      tags: [Views]
+      description: "Required role: admin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViewCreate"
+      responses:
+        "201":
+          description: View created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /views/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Get a view by ID (includes provider_ids)
+      tags: [Views]
+      description: "Required role: viewer"
+      responses:
+        "200":
+          description: View details with attached provider IDs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "404":
+          description: View not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: Update a view
+      tags: [Views]
+      description: "Required role: admin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViewCreate"
+      responses:
+        "200":
+          description: View updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Delete a view
+      tags: [Views]
+      description: "Required role: admin"
+      responses:
+        "200":
+          description: View deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "409":
+          description: View has zones attached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /views/{id}/providers/{pid}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      summary: Attach a provider to a view
+      tags: [Views]
+      description: "Required role: admin"
+      responses:
+        "200":
+          description: Provider attached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "409":
+          description: Already attached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Detach a provider from a view
+      tags: [Views]
+      description: "Required role: admin"
+      responses:
+        "200":
+          description: Provider detached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /zones:
+    get:
+      summary: List zones
+      tags: [Zones]
+      description: "Required role: viewer. Supports ?view_id= filter."
+      parameters:
+        - name: view_id
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of zones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Zone"
+    post:
+      summary: Create a zone
+      tags: [Zones]
+      description: "Required role: admin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ZoneCreate"
+      responses:
+        "201":
+          description: Zone created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate zone name in view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /zones/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Get a zone by ID
+      tags: [Zones]
+      description: "Required role: viewer"
+      responses:
+        "200":
+          description: Zone details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Zone"
+        "404":
+          description: Zone not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: Update a zone
+      tags: [Zones]
+      description: "Required role: admin"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  maxLength: 253
+                deployment_retention:
+                  type: integer
+                  nullable: true
+      responses:
+        "200":
+          description: Zone updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Delete a zone
+      tags: [Zones]
+      description: "Required role: admin"
+      responses:
+        "200":
+          description: Zone deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /zones/{id}/records:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: List records for a zone
+      tags: [Records]
+      description: "Required role: viewer"
+      responses:
+        "200":
+          description: List of records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Record"
+    post:
+      summary: Create a record in a zone
+      tags: [Records]
+      description: "Required role: operator"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordCreate"
+      responses:
+        "201":
+          description: Record created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /zones/{id}/records/{rid}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: rid
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Get a record by ID
+      tags: [Records]
+      description: "Required role: viewer"
+      responses:
+        "200":
+          description: Record details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "404":
+          description: Record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: Update a record
+      tags: [Records]
+      description: "Required role: operator"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordCreate"
+      responses:
+        "200":
+          description: Record updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Delete a record
+      tags: [Records]
+      description: "Required role: operator"
+      responses:
+        "200":
+          description: Record deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /zones/{id}/preview:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      summary: Preview deployment diff for a zone
+      tags: [Deployment]
+      description: "Required role: viewer. Computes diff between desired state and live provider state."
+      responses:
+        "200":
+          description: Preview result with diffs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewResult"
+        "422":
+          description: Unresolved variable in templates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Provider communication error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /zones/{id}/push:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      summary: Push zone records to all providers
+      tags: [Deployment]
+      description: "Required role: operator. Creates deployment snapshot and audit trail."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                purge_drift:
+                  type: boolean
+                  default: false
+                  description: Delete provider-side records not in desired state
+      responses:
+        "200":
+          description: Push completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "409":
+          description: Zone is currently being deployed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Unresolved variable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Provider error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /variables:
+    get:
+      summary: List variables
+      tags: [Variables]
+      description: "Required role: viewer. Supports ?scope= and ?zone_id= filters."
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: zone_id
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of variables
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Variable"
+    post:
+      summary: Create a variable
+      tags: [Variables]
+      description: "Required role: operator"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VariableCreate"
+      responses:
+        "201":
+          description: Variable created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Duplicate variable name in scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /variables/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Get a variable by ID
+      tags: [Variables]
+      description: "Required role: viewer"
+      responses:
+        "200":
+          description: Variable details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Variable"
+        "404":
+          description: Variable not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: Update a variable value
+      tags: [Variables]
+      description: "Required role: operator"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value:
+                  type: string
+                  maxLength: 4096
+      responses:
+        "200":
+          description: Variable updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Delete a variable
+      tags: [Variables]
+      description: "Required role: operator"
+      responses:
+        "200":
+          description: Variable deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /zones/{id}/deployments:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: List deployment history for a zone
+      tags: [Deployments]
+      description: "Required role: viewer"
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of deployment snapshots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeploymentSnapshot"
+
+  /zones/{id}/deployments/{did}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: did
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Get a deployment snapshot
+      tags: [Deployments]
+      description: "Required role: viewer"
+      responses:
+        "200":
+          description: Deployment snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentSnapshot"
+        "404":
+          description: Deployment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /zones/{id}/deployments/{did}/diff:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: did
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Diff between deployment snapshot and current desired state
+      tags: [Deployments]
+      description: "Required role: viewer"
+      responses:
+        "200":
+          description: Diff result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentDiff"
+        "404":
+          description: Deployment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /zones/{id}/deployments/{did}/rollback:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: did
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      summary: Rollback to a deployment snapshot
+      tags: [Deployments]
+      description: "Required role: operator. Restores records from snapshot. Use preview + push to deploy."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollbackRequest"
+      responses:
+        "200":
+          description: Rollback applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "404":
+          description: Deployment not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /audit:
+    get:
+      summary: Query audit log
+      tags: [Audit]
+      description: "Required role: viewer"
+      parameters:
+        - name: entity_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: identity
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: List of audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+
+  /audit/export:
+    get:
+      summary: Export audit log as NDJSON stream
+      tags: [Audit]
+      description: "Required role: admin"
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: NDJSON stream of audit entries
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+        "403":
+          description: Insufficient role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /audit/purge:
+    delete:
+      summary: Purge old audit entries
+      tags: [Audit]
+      description: "Required role: admin. Deletes entries older than retention period."
+      responses:
+        "200":
+          description: Purge result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurgeResult"
+        "403":
+          description: Insufficient role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
