@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dns_orchestrator
+      POSTGRES_USER: dns
+      POSTGRES_PASSWORD: ${DNS_DB_PASSWORD:-dns_dev_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/db:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${DNS_DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dns -d dns_orchestrator"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  powerdns:
+    image: powerdns/pdns-auth-49:latest
+    environment:
+      PDNS_AUTH_API_KEY: ${PDNS_API_KEY:-pdns_dev_key}
+    ports:
+      - "${PDNS_HTTP_PORT:-8081}:8081"
+      - "${PDNS_DNS_PORT:-5353}:53/udp"
+      - "${PDNS_DNS_PORT:-5353}:53/tcp"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DNS_DB_URL: postgresql://dns:${DNS_DB_PASSWORD:-dns_dev_password}@db:5432/dns_orchestrator
+      DNS_MASTER_KEY: ${DNS_MASTER_KEY}
+      DNS_JWT_SECRET: ${DNS_JWT_SECRET}
+      DNS_HTTP_PORT: "8080"
+      DNS_AUDIT_STDOUT: "true"
+      DNS_LOG_LEVEL: "${DNS_LOG_LEVEL:-info}"
+    ports:
+      - "${DNS_HTTP_PORT:-8080}:8080"
+    volumes:
+      - gitrepo:/var/dns-orchestrator/repo
+
+volumes:
+  pgdata:
+  gitrepo:
