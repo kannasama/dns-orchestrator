@@ -1,0 +1,6 @@
+build/
+.git/
+.roo/
+tasks/
+*.md
+!README.md
