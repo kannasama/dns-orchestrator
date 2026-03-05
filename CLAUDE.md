@@ -13,8 +13,9 @@ architectural decisions, and development roadmap so context transfers across mac
 - **Phase 5 complete:** DAL: Core Repositories + CRUD API Routes
 - **Phase 6 complete:** PowerDNS Provider + Core Engines
 - **Phase 7 complete:** Deployment Pipeline + GitOps
-- **Next task:** Phase 8
-- **Tests:** 180 total (89 pass, 91 skip — DB integration tests need `DNS_DB_URL`)
+- **Phase 8 complete:** REST API Hardening + Docker Compose
+- **Next task:** Phase 9
+- **Tests:** 218 total (127 pass, 91 skip — DB integration tests need `DNS_DB_URL`)
 
 Build and test:
 ```bash
@@ -152,15 +153,26 @@ provider state.
 
 ---
 
-### Phase 8 — REST API Hardening + Docker Compose
+### Phase 8 — REST API Hardening + Docker Compose ← COMPLETE
 
 **Goal:** Full API surface documented and runnable in one command.
 
-- `docs/openapi.yaml`, request validation middleware, rate limiting on auth endpoints
-- `docker-compose.yml` (PostgreSQL 16 + PowerDNS + dns-orchestrator), `Dockerfile`
-- Full API integration test suite
-- **Naming brainstorm here** — rename before Web UI to avoid namespace churn. Target: something
-  that evokes control, zones, authority, or precision (not just "DNS + verb").
+**Deliverables:**
+- `src/api/RouteHelpers.cpp` — extracted shared `authenticate()`, `requireRole()`, `jsonResponse()`,
+  `errorResponse()`, `invalidJsonResponse()` from all 9 route files
+- `src/api/RequestValidator.cpp` — centralized input validation (15 methods, field length/format
+  constraints from ARCHITECTURE.md §4.6.5)
+- `src/api/RateLimiter.cpp` — token-bucket rate limiter (per-IP, thread-safe) wired into login
+- Security response headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, CSP)
+  applied to all JSON responses via `applySecurityHeaders()`
+- `include/common/Errors.hpp` — added `RateLimitedError` (429)
+- `Dockerfile` — multi-stage build (debian:bookworm-slim builder → runtime)
+- `docker-compose.yml` — PostgreSQL 16 + PowerDNS + app with health checks
+- `.env.example` — documented environment variables
+- `docs/openapi.yaml` — OpenAPI 3.1 spec covering all 24 endpoints
+- `tests/integration/test_api_validation.cpp` — 13 API validation integration tests
+
+**Tests:** 218 total (127 pass, 91 skip — 38 new tests added in Phase 8)
 
 ---
 
@@ -227,8 +239,14 @@ only for non-owning references.
 | `docs/TUI_DESIGN.md` | TUI client design spec |
 | `scripts/db/001_initial_schema.sql` | Full PostgreSQL schema (11 tables) |
 | `scripts/db/002_add_indexes.sql` | 11 performance indexes |
-| `src/main.cpp` | Startup sequence (all steps 1–12 wired; Phase 7 complete) |
+| `src/main.cpp` | Startup sequence (all steps 1–12 wired; Phase 8 complete) |
 | `include/common/Types.hpp` | Core data types: `DnsRecord`, `PreviewResult`, `RequestContext` |
-| `include/common/Errors.hpp` | `AppError` hierarchy |
-| `tests/unit/` | Unit tests (MaintenanceScheduler, SamlReplayCache, JWT, Crypto) |
-| `tests/integration/` | Integration tests (AuthService, AuthMiddleware, repositories) |
+| `include/common/Errors.hpp` | `AppError` hierarchy (incl. `RateLimitedError` 429) |
+| `include/api/RouteHelpers.hpp` | Shared route helpers (auth, response, security headers) |
+| `include/api/RequestValidator.hpp` | Input validation (field length/format constraints) |
+| `include/api/RateLimiter.hpp` | Token-bucket rate limiter for auth endpoints |
+| `docs/openapi.yaml` | OpenAPI 3.1 specification (24 endpoints) |
+| `Dockerfile` | Multi-stage build (builder → runtime) |
+| `docker-compose.yml` | PostgreSQL 16 + PowerDNS + app |
+| `tests/unit/` | Unit tests (MaintenanceScheduler, SamlReplayCache, JWT, Crypto, RouteHelpers, RequestValidator, RateLimiter) |
+| `tests/integration/` | Integration tests (AuthService, AuthMiddleware, repositories, API validation) |
