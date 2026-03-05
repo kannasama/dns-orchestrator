@@ -13,6 +13,16 @@ VariableRepository::~VariableRepository() = default;
 int64_t VariableRepository::create(const std::string& sName, const std::string& sValue,
                                    const std::string& sType, const std::string& sScope,
                                    std::optional<int64_t> oZoneId) {
+  // Validate scope/zone_id consistency before touching the database.
+  if (sScope == "global" && oZoneId.has_value()) {
+    throw common::ValidationError("SCOPE_ZONE_MISMATCH",
+                                  "scope='global' requires zone_id to be NULL");
+  }
+  if (sScope == "zone" && !oZoneId.has_value()) {
+    throw common::ValidationError("SCOPE_ZONE_MISMATCH",
+                                  "scope='zone' requires a zone_id");
+  }
+
   // PostgreSQL UNIQUE(name, zone_id) treats NULL as distinct, so enforce
   // global uniqueness in application logic.
   if (sScope == "global") {
