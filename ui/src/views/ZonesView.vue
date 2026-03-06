@@ -9,6 +9,7 @@ import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
 import Skeleton from 'primevue/skeleton'
+import ToggleSwitch from 'primevue/toggleswitch'
 import PageHeader from '../components/shared/PageHeader.vue'
 import EmptyState from '../components/shared/EmptyState.vue'
 import { useCrud } from '../composables/useCrud'
@@ -25,12 +26,12 @@ const { confirmDelete } = useConfirmAction()
 const { items: zones, loading, fetch: fetchZones, create, update, remove } = useCrud<
   Zone,
   ZoneCreate,
-  { name: string; deployment_retention?: number | null }
+  { name: string; deployment_retention?: number | null; manage_soa?: boolean; manage_ns?: boolean }
 >(
   {
     list: () => zoneApi.listZones(),
     create: zoneApi.createZone,
-    update: (id: number, data: { name: string; deployment_retention?: number | null }) =>
+    update: (id: number, data: { name: string; deployment_retention?: number | null; manage_soa?: boolean; manage_ns?: boolean }) =>
       zoneApi.updateZone(id, data),
     remove: zoneApi.deleteZone,
   },
@@ -44,11 +45,13 @@ const form = ref({
   name: '',
   view_id: null as number | null,
   deployment_retention: null as number | null,
+  manage_soa: false,
+  manage_ns: false,
 })
 
 function openCreate() {
   editingId.value = null
-  form.value = { name: '', view_id: null, deployment_retention: null }
+  form.value = { name: '', view_id: null, deployment_retention: null, manage_soa: false, manage_ns: false }
   drawerVisible.value = true
 }
 
@@ -58,6 +61,8 @@ function openEdit(zone: Zone) {
     name: zone.name,
     view_id: zone.view_id,
     deployment_retention: zone.deployment_retention,
+    manage_soa: zone.manage_soa,
+    manage_ns: zone.manage_ns,
   }
   drawerVisible.value = true
 }
@@ -68,12 +73,16 @@ async function handleSubmit() {
     ok = await update(editingId.value, {
       name: form.value.name,
       deployment_retention: form.value.deployment_retention,
+      manage_soa: form.value.manage_soa,
+      manage_ns: form.value.manage_ns,
     })
   } else {
     ok = await create({
       name: form.value.name,
       view_id: form.value.view_id!,
       deployment_retention: form.value.deployment_retention,
+      manage_soa: form.value.manage_soa,
+      manage_ns: form.value.manage_ns,
     })
   }
   if (ok) drawerVisible.value = false
@@ -199,6 +208,17 @@ onMounted(async () => {
             placeholder="Default"
           />
         </div>
+        <div class="field-group">
+          <label class="field-group-label">Record Management</label>
+          <div class="toggle-row">
+            <ToggleSwitch id="zone-manage-soa" v-model="form.manage_soa" />
+            <label for="zone-manage-soa" class="toggle-label" v-tooltip.right="'When enabled, SOA records are included in diff previews and deployments. Usually leave off — most providers manage SOA automatically.'">Manage SOA records</label>
+          </div>
+          <div class="toggle-row">
+            <ToggleSwitch id="zone-manage-ns" v-model="form.manage_ns" />
+            <label for="zone-manage-ns" class="toggle-label" v-tooltip.right="'When enabled, NS records are included in diff previews and deployments. Enable for self-hosted providers (e.g. PowerDNS).'">Manage NS records</label>
+          </div>
+        </div>
         <Button type="submit" :label="editingId ? 'Save' : 'Create'" class="w-full" />
       </form>
     </Drawer>
@@ -248,6 +268,29 @@ onMounted(async () => {
 }
 
 .cursor-pointer :deep(tr) {
+  cursor: pointer;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.field-group-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--p-surface-400);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle-label {
+  font-size: 0.875rem;
   cursor: pointer;
 }
 </style>

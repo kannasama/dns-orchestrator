@@ -42,6 +42,8 @@ export interface Zone {
   name: string
   view_id: number
   deployment_retention: number | null
+  manage_soa: boolean
+  manage_ns: boolean
   created_at: number
 }
 
@@ -49,6 +51,8 @@ export interface ZoneCreate {
   name: string
   view_id: number
   deployment_retention?: number | null
+  manage_soa?: boolean
+  manage_ns?: boolean
 }
 
 export interface DnsRecord {

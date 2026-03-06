@@ -16,7 +16,12 @@ export function createZone(data: ZoneCreate): Promise<{ id: number }> {
 
 export function updateZone(
   id: number,
-  data: { name: string; deployment_retention?: number | null },
+  data: {
+    name: string
+    deployment_retention?: number | null
+    manage_soa?: boolean
+    manage_ns?: boolean
+  },
 ): Promise<{ message: string }> {
   return put(`/zones/${id}`, data)
 }
