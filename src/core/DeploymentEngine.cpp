@@ -191,11 +191,13 @@ void DeploymentEngine::push(int64_t iZoneId, bool bPurgeDrift,
         {"action", diff.action == common::DiffAction::Add      ? "add"
                    : diff.action == common::DiffAction::Update  ? "update"
                    : diff.action == common::DiffAction::Delete  ? "delete"
-                                                                : "drift"},
+                                                                 : "drift"},
         {"name", diff.sName},
         {"type", diff.sType},
         {"source_value", diff.sSourceValue},
         {"provider_value", diff.sProviderValue},
+        {"ttl", diff.uTtl},
+        {"priority", diff.iPriority},
     });
   }
   _arRepo.insert("zone", iZoneId, "push", std::nullopt, jDiffs, sActor,

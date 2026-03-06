@@ -84,6 +84,8 @@ std::vector<common::RecordDiff> DiffEngine::computeDiff(
         rd.sType = dr.sType;
         rd.sSourceValue = dr.sValue;
         rd.sProviderValue = sProviderValue;
+        rd.uTtl = dr.uTtl;
+        rd.iPriority = dr.iPriority;
         vDiffs.push_back(std::move(rd));
       } else {
         common::RecordDiff rd;
@@ -91,6 +93,8 @@ std::vector<common::RecordDiff> DiffEngine::computeDiff(
         rd.sName = dr.sName;
         rd.sType = dr.sType;
         rd.sSourceValue = dr.sValue;
+        rd.uTtl = dr.uTtl;
+        rd.iPriority = dr.iPriority;
         vDiffs.push_back(std::move(rd));
       }
     } else {
@@ -99,6 +103,8 @@ std::vector<common::RecordDiff> DiffEngine::computeDiff(
       rd.sName = dr.sName;
       rd.sType = dr.sType;
       rd.sSourceValue = dr.sValue;
+      rd.uTtl = dr.uTtl;
+      rd.iPriority = dr.iPriority;
       vDiffs.push_back(std::move(rd));
     }
   }
@@ -124,6 +130,8 @@ std::vector<common::RecordDiff> DiffEngine::computeDiff(
     rd.sName = dr.sName;
     rd.sType = dr.sType;
     rd.sProviderValue = dr.sValue;
+    rd.uTtl = dr.uTtl;
+    rd.iPriority = dr.iPriority;
     vDiffs.push_back(std::move(rd));
   }
 

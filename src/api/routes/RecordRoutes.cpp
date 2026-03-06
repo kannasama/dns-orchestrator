@@ -170,13 +170,15 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
           for (const auto& diff : prResult.vDiffs) {
             jDiffs.push_back({
                 {"action", diff.action == common::DiffAction::Add      ? "add"
-                           : diff.action == common::DiffAction::Update  ? "update"
-                           : diff.action == common::DiffAction::Delete  ? "delete"
-                                                                        : "drift"},
+                           : diff.action == common::DiffAction::Update ? "update"
+                           : diff.action == common::DiffAction::Delete ? "delete"
+                                                                       : "drift"},
                 {"name", diff.sName},
                 {"type", diff.sType},
                 {"source_value", diff.sSourceValue},
                 {"provider_value", diff.sProviderValue},
+                {"ttl", diff.uTtl},
+                {"priority", diff.iPriority},
             });
           }
 

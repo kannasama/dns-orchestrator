@@ -40,6 +40,8 @@ struct RecordDiff {
   std::string sType;
   std::string sProviderValue;
   std::string sSourceValue;
+  uint32_t uTtl = 300;
+  int iPriority = 0;
 };
 
 /// Result of a preview/diff operation.

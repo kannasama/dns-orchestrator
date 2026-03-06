@@ -101,6 +101,8 @@ export interface RecordDiff {
   type: string
   source_value: string
   provider_value: string
+  ttl: number
+  priority: number
 }
 
 export interface PreviewResult {
