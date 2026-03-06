@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 namespace pqxx {
 class row;
 }
@@ -25,6 +27,7 @@ struct ProviderRow {
   std::string sType;
   std::string sApiEndpoint;
   std::string sDecryptedToken;
+  nlohmann::json jConfig = nlohmann::json::object();
   std::chrono::system_clock::time_point tpCreatedAt;
   std::chrono::system_clock::time_point tpUpdatedAt;
 };
@@ -40,7 +43,8 @@ class ProviderRepository {
   /// Create a provider. Encrypts the token before INSERT. Returns the new ID.
   int64_t create(const std::string& sName, const std::string& sType,
                  const std::string& sApiEndpoint,
-                 const std::string& sPlaintextToken);
+                 const std::string& sPlaintextToken,
+                 const nlohmann::json& jConfig = nlohmann::json::object());
 
   /// List all providers. Decrypts tokens.
   std::vector<ProviderRow> listAll();
@@ -51,7 +55,8 @@ class ProviderRepository {
   /// Update a provider. Re-encrypts token only if oPlaintextToken has a value.
   void update(int64_t iId, const std::string& sName,
               const std::string& sApiEndpoint,
-              const std::optional<std::string>& oPlaintextToken);
+              const std::optional<std::string>& oPlaintextToken,
+              const std::optional<nlohmann::json>& oConfig = std::nullopt);
 
   /// Delete a provider by ID. Throws NotFoundError if not found.
   void deleteById(int64_t iId);

@@ -16,17 +16,20 @@ ProviderRepository::~ProviderRepository() = default;
 
 int64_t ProviderRepository::create(const std::string& sName, const std::string& sType,
                                    const std::string& sApiEndpoint,
-                                   const std::string& sPlaintextToken) {
-  std::string sEncrypted = _csService.encrypt(sPlaintextToken);
+                                   const std::string& sPlaintextToken,
+                                   const nlohmann::json& jConfig) {
+  std::string sEncryptedToken = _csService.encrypt(sPlaintextToken);
+  std::string sEncryptedConfig =
+      jConfig.empty() ? std::string{} : _csService.encrypt(jConfig.dump());
 
   auto cg = _cpPool.checkout();
   pqxx::work txn(*cg);
 
   try {
     auto result = txn.exec(
-        "INSERT INTO providers (name, type, api_endpoint, encrypted_token) "
-        "VALUES ($1, $2::provider_type, $3, $4) RETURNING id",
-        pqxx::params{sName, sType, sApiEndpoint, sEncrypted});
+        "INSERT INTO providers (name, type, api_endpoint, encrypted_token, encrypted_config) "
+        "VALUES ($1, $2::provider_type, $3, $4, $5) RETURNING id",
+        pqxx::params{sName, sType, sApiEndpoint, sEncryptedToken, sEncryptedConfig});
     txn.commit();
     return result.one_row()[0].as<int64_t>();
   } catch (const pqxx::unique_violation&) {
@@ -41,7 +44,8 @@ std::vector<ProviderRow> ProviderRepository::listAll() {
   auto result = txn.exec(
       "SELECT id, name, type::text, api_endpoint, encrypted_token, "
       "EXTRACT(EPOCH FROM created_at)::bigint, "
-      "EXTRACT(EPOCH FROM updated_at)::bigint "
+      "EXTRACT(EPOCH FROM updated_at)::bigint, "
+      "encrypted_config "
       "FROM providers ORDER BY id");
   txn.commit();
 
@@ -59,7 +63,8 @@ std::optional<ProviderRow> ProviderRepository::findById(int64_t iId) {
   auto result = txn.exec(
       "SELECT id, name, type::text, api_endpoint, encrypted_token, "
       "EXTRACT(EPOCH FROM created_at)::bigint, "
-      "EXTRACT(EPOCH FROM updated_at)::bigint "
+      "EXTRACT(EPOCH FROM updated_at)::bigint, "
+      "encrypted_config "
       "FROM providers WHERE id = $1",
       pqxx::params{iId});
   txn.commit();
@@ -70,24 +75,38 @@ std::optional<ProviderRow> ProviderRepository::findById(int64_t iId) {
 
 void ProviderRepository::update(int64_t iId, const std::string& sName,
                                 const std::string& sApiEndpoint,
-                                const std::optional<std::string>& oPlaintextToken) {
+                                const std::optional<std::string>& oPlaintextToken,
+                                const std::optional<nlohmann::json>& oConfig) {
   auto cg = _cpPool.checkout();
   pqxx::work txn(*cg);
 
+  // Build SET clauses dynamically based on which optional fields are provided.
+  std::string sSql = "UPDATE providers SET name = $2, api_endpoint = $3, "
+                     "updated_at = NOW()";
+  int iNextParam = 4;
+  std::vector<std::string> vEncrypted;  // keep encrypted strings alive
+
+  if (oPlaintextToken.has_value()) {
+    vEncrypted.push_back(_csService.encrypt(*oPlaintextToken));
+    sSql += ", encrypted_token = $" + std::to_string(iNextParam++);
+  }
+  if (oConfig.has_value()) {
+    vEncrypted.push_back(
+        oConfig->empty() ? std::string{} : _csService.encrypt(oConfig->dump()));
+    sSql += ", encrypted_config = $" + std::to_string(iNextParam++);
+  }
+  sSql += " WHERE id = $1";
+
   pqxx::result result;
   try {
-    if (oPlaintextToken.has_value()) {
-      std::string sEncrypted = _csService.encrypt(*oPlaintextToken);
-      result = txn.exec(
-          "UPDATE providers SET name = $2, api_endpoint = $3, encrypted_token = $4, "
-          "updated_at = NOW() WHERE id = $1",
-          pqxx::params{iId, sName, sApiEndpoint, sEncrypted});
-    } else {
-      result = txn.exec(
-          "UPDATE providers SET name = $2, api_endpoint = $3, "
-          "updated_at = NOW() WHERE id = $1",
-          pqxx::params{iId, sName, sApiEndpoint});
+    pqxx::params params;
+    params.append(iId);
+    params.append(sName);
+    params.append(sApiEndpoint);
+    for (const auto& s : vEncrypted) {
+      params.append(s);
     }
+    result = txn.exec(sSql, params);
     txn.commit();
   } catch (const pqxx::unique_violation&) {
     throw common::ConflictError("PROVIDER_EXISTS",
@@ -123,6 +142,11 @@ ProviderRow ProviderRepository::mapRow(const pqxx::row& row) const {
       std::chrono::seconds(row[5].as<int64_t>()));
   pr.tpUpdatedAt = std::chrono::system_clock::time_point(
       std::chrono::seconds(row[6].as<int64_t>()));
+
+  std::string sEncConfig = row[7].as<std::string>("");
+  if (!sEncConfig.empty()) {
+    pr.jConfig = nlohmann::json::parse(_csService.decrypt(sEncConfig));
+  }
   return pr;
 }
 

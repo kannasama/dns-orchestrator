@@ -6,6 +6,7 @@
 #include "security/CryptoService.hpp"
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include <cstdlib>
 #include <string>
@@ -115,4 +116,41 @@ TEST_F(ProviderRepositoryTest, DuplicateNameThrows) {
 
   EXPECT_THROW(_prRepo->create("unique-name", "powerdns", "http://b:8081", "key2"),
                dns::common::ConflictError);
+}
+
+TEST_F(ProviderRepositoryTest, CreateAndFindByIdWithConfig) {
+  nlohmann::json jConfig = {{"server_id", "localhost"}};
+  int64_t iId = _prRepo->create("pdns-with-config", "powerdns",
+                                "http://localhost:8081", "secret-key",
+                                jConfig);
+  EXPECT_GT(iId, 0);
+
+  auto oRow = _prRepo->findById(iId);
+  ASSERT_TRUE(oRow.has_value());
+  EXPECT_EQ(oRow->sName, "pdns-with-config");
+  EXPECT_EQ(oRow->jConfig["server_id"], "localhost");
+}
+
+TEST_F(ProviderRepositoryTest, CreateWithEmptyConfig) {
+  int64_t iId = _prRepo->create("pdns-no-config", "powerdns",
+                                "http://localhost:8081", "secret-key",
+                                nlohmann::json::object());
+  auto oRow = _prRepo->findById(iId);
+  ASSERT_TRUE(oRow.has_value());
+  EXPECT_TRUE(oRow->jConfig.is_object());
+  EXPECT_TRUE(oRow->jConfig.empty());
+}
+
+TEST_F(ProviderRepositoryTest, UpdateWithConfig) {
+  int64_t iId = _prRepo->create("config-update", "powerdns",
+                                "http://localhost:8081", "key",
+                                nlohmann::json{{"server_id", "old"}});
+
+  _prRepo->update(iId, "config-update", "http://localhost:8081",
+                  std::nullopt,
+                  nlohmann::json{{"server_id", "new-server"}});
+
+  auto oRow = _prRepo->findById(iId);
+  ASSERT_TRUE(oRow.has_value());
+  EXPECT_EQ(oRow->jConfig["server_id"], "new-server");
 }
