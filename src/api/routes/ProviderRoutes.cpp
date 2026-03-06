@@ -32,6 +32,7 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
                 {"name", row.sName},
                 {"type", row.sType},
                 {"api_endpoint", row.sApiEndpoint},
+                {"config", row.jConfig},
                 {"created_at", std::chrono::duration_cast<std::chrono::seconds>(
                                    row.tpCreatedAt.time_since_epoch())
                                    .count()},
@@ -64,7 +65,12 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
           RequestValidator::validateRequired(sEndpoint, "api_endpoint");
           RequestValidator::validateRequired(sToken, "token");
 
-          int64_t iId = _prRepo.create(sName, sType, sEndpoint, sToken);
+          nlohmann::json jConfig = nlohmann::json::object();
+          if (jBody.contains("config") && jBody["config"].is_object()) {
+            jConfig = jBody["config"];
+          }
+
+          int64_t iId = _prRepo.create(sName, sType, sEndpoint, sToken, jConfig);
           return jsonResponse(201, {{"id", iId}});
         } catch (const common::AppError& e) {
           return errorResponse(e);
@@ -91,6 +97,7 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
               {"type", oRow->sType},
               {"api_endpoint", oRow->sApiEndpoint},
               {"token", oRow->sDecryptedToken},
+              {"config", oRow->jConfig},
               {"created_at", std::chrono::duration_cast<std::chrono::seconds>(
                                  oRow->tpCreatedAt.time_since_epoch())
                                  .count()},
@@ -123,7 +130,12 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
             oToken = jBody["token"].get<std::string>();
           }
 
-          _prRepo.update(iId, sName, sEndpoint, oToken);
+          std::optional<nlohmann::json> oConfig;
+          if (jBody.contains("config") && jBody["config"].is_object()) {
+            oConfig = jBody["config"];
+          }
+
+          _prRepo.update(iId, sName, sEndpoint, oToken, oConfig);
           return jsonResponse(200, {{"message", "Provider updated"}});
         } catch (const common::AppError& e) {
           return errorResponse(e);
