@@ -178,10 +178,12 @@ provider state.
 
 ### Phase 9 — Web UI (Vue 3 + TypeScript)
 
-Separate repository: `meridian-dns-ui`. Stack: Vite + Vue 3 + TypeScript.
+In-repo at `ui/`. Stack: Vite + Vue 3 + TypeScript + PrimeVue + Pinia.
+Crow serves the built static files in production (single binary). See
+`docs/plans/2026-03-05-phase-9-web-ui.md` for full design.
 
-Feature order: auth → providers → zones/views → records → variables → deployment workflow →
-audit log.
+Feature order: scaffold → providers → views → zones/records → variables → deployments →
+audit log → dashboard.
 
 ---
 
