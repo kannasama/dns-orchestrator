@@ -4,6 +4,7 @@ export interface Provider {
   type: string
   api_endpoint: string
   token?: string
+  config: Record<string, string>
   created_at: number
   updated_at: number
 }
@@ -13,12 +14,14 @@ export interface ProviderCreate {
   type: string
   api_endpoint: string
   token: string
+  config?: Record<string, string>
 }
 
 export interface ProviderUpdate {
   name: string
   api_endpoint: string
   token?: string
+  config?: Record<string, string>
 }
 
 export interface View {

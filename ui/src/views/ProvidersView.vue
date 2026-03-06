@@ -41,6 +41,8 @@ const form = ref({
   type: 'powerdns',
   api_endpoint: '',
   token: '',
+  server_id: '',
+  account_id: '',
 })
 
 const providerTypes = [
@@ -51,7 +53,7 @@ const providerTypes = [
 
 function openCreate() {
   editingId.value = null
-  form.value = { name: '', type: 'powerdns', api_endpoint: '', token: '' }
+  form.value = { name: '', type: 'powerdns', api_endpoint: '', token: '', server_id: '', account_id: '' }
   drawerVisible.value = true
 }
 
@@ -63,8 +65,21 @@ async function openEdit(provider: Provider) {
     type: full.type,
     api_endpoint: full.api_endpoint,
     token: '',
+    server_id: full.config?.server_id ?? '',
+    account_id: full.config?.account_id ?? '',
   }
   drawerVisible.value = true
+}
+
+function buildConfig(): Record<string, string> {
+  const config: Record<string, string> = {}
+  if (form.value.type === 'powerdns' && form.value.server_id) {
+    config.server_id = form.value.server_id
+  }
+  if (form.value.type === 'cloudflare' && form.value.account_id) {
+    config.account_id = form.value.account_id
+  }
+  return config
 }
 
 async function handleSubmit() {
@@ -73,13 +88,20 @@ async function handleSubmit() {
     const data: ProviderUpdate = {
       name: form.value.name,
       api_endpoint: form.value.api_endpoint,
+      config: buildConfig(),
     }
     if (form.value.token) {
       data.token = form.value.token
     }
     ok = await update(editingId.value, data)
   } else {
-    ok = await create(form.value as ProviderCreate)
+    ok = await create({
+      name: form.value.name,
+      type: form.value.type,
+      api_endpoint: form.value.api_endpoint,
+      token: form.value.token,
+      config: buildConfig(),
+    })
   }
   if (ok) {
     drawerVisible.value = false
@@ -208,6 +230,15 @@ onMounted(fetchProviders)
             class="w-full"
             inputClass="w-full"
           />
+        </div>
+        <div class="field" v-if="form.type === 'powerdns'">
+          <label for="prov-server-id">Server ID</label>
+          <InputText id="prov-server-id" v-model="form.server_id" class="w-full"
+                     placeholder="localhost" />
+        </div>
+        <div class="field" v-if="form.type === 'cloudflare'">
+          <label for="prov-account-id">Account ID</label>
+          <InputText id="prov-account-id" v-model="form.account_id" class="w-full" />
         </div>
         <Button type="submit" :label="editingId ? 'Save' : 'Create'" class="w-full" />
       </form>
