@@ -1,4 +1,13 @@
-# ── Stage 1: Build ──────────────────────────────────────────────────────────
+# ── Stage 1: UI build ───────────────────────────────────────────────────────
+FROM node:22-slim AS ui-builder
+
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ .
+RUN npm run build
+
+# ── Stage 2: C++ build ─────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,7 +23,7 @@ COPY . .
 RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   && cmake --build build --parallel
 
-# ── Stage 2: Runtime ─────────────────────────────────────────────────────────
+# ── Stage 3: Runtime ───────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -24,9 +33,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd --system --no-create-home meridian-dns
 
 COPY --from=builder /build/build/meridian-dns /usr/local/bin/meridian-dns
+COPY --from=ui-builder /ui/dist /opt/meridian-dns/ui
 COPY scripts/db/ /opt/meridian-dns/db/
 COPY scripts/docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+ENV DNS_UI_DIR=/opt/meridian-dns/ui
 
 USER meridian-dns
 EXPOSE 8080

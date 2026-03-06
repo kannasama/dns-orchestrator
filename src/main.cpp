@@ -8,6 +8,7 @@
 
 #include "api/ApiServer.hpp"
 #include "api/AuthMiddleware.hpp"
+#include "api/StaticFileHandler.hpp"
 #include "api/routes/AuthRoutes.hpp"
 #include "api/routes/HealthRoutes.hpp"
 #include "api/routes/ProviderRoutes.hpp"
@@ -265,6 +266,11 @@ int main(int argc, char* argv[]) {
         *providerRoutes, *viewRoutes, *zoneRoutes, *recordRoutes, *variableRoutes);
 
     apiServer->registerRoutes();
+
+    // Serve static UI files (SPA fallback) — must be registered after API routes
+    auto sfhHandler = std::make_unique<dns::api::StaticFileHandler>(cfgApp.sUiDir);
+    sfhHandler->registerRoutes(crowApp);
+
     spLog->info("Step 10: API routes registered");
 
     // ── Step 11: Start HTTP server ───────────────────────────────────────

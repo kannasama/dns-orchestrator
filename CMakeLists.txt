@@ -48,6 +48,21 @@ set(HTTPLIB_REQUIRE_OPENSSL ON CACHE BOOL "" FORCE)
 set(HTTPLIB_COMPILE OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(httplib)
 
+# ── UI build (optional) ───────────────────────────────────────────────────
+option(BUILD_UI "Build the Vue 3 web UI (requires Node.js)" ON)
+if(BUILD_UI)
+  find_program(NPM_EXECUTABLE npm REQUIRED)
+  set(UI_SOURCE_DIR "${CMAKE_SOURCE_DIR}/ui")
+  set(UI_BUILD_DIR "${UI_SOURCE_DIR}/dist")
+  add_custom_target(ui-build ALL
+    COMMAND ${NPM_EXECUTABLE} ci
+    COMMAND ${NPM_EXECUTABLE} run build
+    WORKING_DIRECTORY ${UI_SOURCE_DIR}
+    COMMENT "Building Vue 3 web UI"
+  )
+  install(DIRECTORY ${UI_BUILD_DIR}/ DESTINATION share/meridian-dns/ui)
+endif()
+
 # ── Subdirectories ─────────────────────────────────────────────────────────
 add_subdirectory(src)
 add_subdirectory(tests)

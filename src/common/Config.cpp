@@ -136,6 +136,9 @@ Config Config::load() {
   // Deployment
   cfg.iDeploymentRetentionCount = getEnvInt("DNS_DEPLOYMENT_RETENTION_COUNT", 10);
 
+  // Web UI
+  cfg.sUiDir = getEnv("DNS_UI_DIR");
+
   // Audit
   const std::string sAuditDbUrl = getEnv("DNS_AUDIT_DB_URL");
   if (!sAuditDbUrl.empty()) {

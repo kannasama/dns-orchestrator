@@ -17,6 +17,10 @@ compile_commands.json
 *.pem
 *.key
 
+# ── UI (Node.js / Vite) ──────────────────────────────────────────────────────
+ui/node_modules/
+ui/dist/
+
 # ── OS artifacts ─────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

@@ -49,6 +49,9 @@ struct Config {
   // ── Deployment ────────────────────────────────────────────────────────
   int iDeploymentRetentionCount = 10;
 
+  // ── Web UI ───────────────────────────────────────────────────────────
+  std::string sUiDir;  // path to built UI assets (empty = disabled)
+
   // ── Audit ─────────────────────────────────────────────────────────────
   std::optional<std::string> oAuditDbUrl;
   bool bAuditStdout = false;
