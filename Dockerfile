@@ -8,15 +8,16 @@ COPY ui/ .
 RUN npm run build
 
 # ── Stage 2: C++ build ─────────────────────────────────────────────────────
-FROM debian:bookworm-slim AS builder
+FROM fedora:43 AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  cmake ninja-build g++ \
-  libpqxx-dev libssl-dev libgit2-dev \
-  nlohmann-json3-dev libspdlog-dev \
-  libasio-dev \
+RUN dnf install -y --setopt=install_weak_deps=False \
+  cmake ninja-build gcc-c++ \
+  libpqxx-devel openssl-devel libgit2-devel \
+  json-devel spdlog-devel \
+  asio-devel \
+  pkgconf-pkg-config \
   git ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+  && dnf clean all
 
 WORKDIR /build
 COPY . .
@@ -25,15 +26,15 @@ RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_UI=OFF \
   && cmake --build build --parallel
 
 # ── Stage 3: Runtime ───────────────────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
+FROM fedora:43 AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  libpq5 libssl3 libgit2-1.5 libspdlog1.10 \
-  && rm -rf /var/lib/apt/lists/*
+RUN dnf install -y --setopt=install_weak_deps=False \
+  libpq libpqxx openssl-libs libgit2 spdlog fmt \
+  && dnf clean all
 
 RUN useradd --system --no-create-home meridian-dns
 
-COPY --from=builder /build/build/meridian-dns /usr/local/bin/meridian-dns
+COPY --from=builder /build/build/src/meridian-dns /usr/local/bin/meridian-dns
 COPY --from=ui-builder /ui/dist /opt/meridian-dns/ui
 COPY scripts/db/ /opt/meridian-dns/db/
 COPY scripts/docker/entrypoint.sh /entrypoint.sh
