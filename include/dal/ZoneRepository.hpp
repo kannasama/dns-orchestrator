@@ -16,6 +16,8 @@ struct ZoneRow {
   std::string sName;
   int64_t iViewId = 0;
   std::optional<int> oDeploymentRetention;
+  bool bManageSoa = false;
+  bool bManageNs = false;
   std::chrono::system_clock::time_point tpCreatedAt;
 };
 
@@ -28,7 +30,8 @@ class ZoneRepository {
 
   /// Create a zone. Returns the new ID.
   int64_t create(const std::string& sName, int64_t iViewId,
-                 std::optional<int> oRetention);
+                 std::optional<int> oRetention,
+                 bool bManageSoa = false, bool bManageNs = false);
 
   /// List all zones.
   std::vector<ZoneRow> listAll();
@@ -40,7 +43,8 @@ class ZoneRepository {
   std::optional<ZoneRow> findById(int64_t iId);
 
   /// Update a zone's name and retention. Does NOT change view_id.
-  void update(int64_t iId, const std::string& sName, std::optional<int> oRetention);
+  void update(int64_t iId, const std::string& sName, std::optional<int> oRetention,
+              bool bManageSoa = false, bool bManageNs = false);
 
   /// Delete a zone. Cascades to records, variables, deployments.
   void deleteById(int64_t iId);

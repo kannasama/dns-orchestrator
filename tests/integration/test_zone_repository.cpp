@@ -113,3 +113,23 @@ TEST_F(ZoneRepositoryTest, InvalidViewIdThrows) {
   EXPECT_THROW(_zrRepo->create("bad.com", 999999, std::nullopt),
                dns::common::ValidationError);
 }
+
+TEST_F(ZoneRepositoryTest, CreateWithSoaNsFlags) {
+  auto iId = _zrRepo->create("soa-test.com.", _iViewId, std::nullopt, true, true);
+  auto oRow = _zrRepo->findById(iId);
+  ASSERT_TRUE(oRow.has_value());
+  EXPECT_TRUE(oRow->bManageSoa);
+  EXPECT_TRUE(oRow->bManageNs);
+}
+
+TEST_F(ZoneRepositoryTest, UpdateSoaNsFlags) {
+  auto iId = _zrRepo->create("ns-test.com.", _iViewId, std::nullopt);
+  auto oRow = _zrRepo->findById(iId);
+  EXPECT_FALSE(oRow->bManageSoa);
+  EXPECT_FALSE(oRow->bManageNs);
+
+  _zrRepo->update(iId, "ns-test.com.", std::nullopt, false, true);
+  oRow = _zrRepo->findById(iId);
+  EXPECT_FALSE(oRow->bManageSoa);
+  EXPECT_TRUE(oRow->bManageNs);
+}
