@@ -252,3 +252,64 @@ only for non-owning references.
 | `docker-compose.yml` | PostgreSQL 16 + PowerDNS + app |
 | `tests/unit/` | Unit tests (MaintenanceScheduler, SamlReplayCache, JWT, Crypto, RouteHelpers, RequestValidator, RateLimiter) |
 | `tests/integration/` | Integration tests (AuthService, AuthMiddleware, repositories, API validation) |
+
+---
+
+## Design Context
+
+### Users
+
+Mixed audience: solo sysadmins managing a handful of zones, platform/SRE teams orchestrating
+internal DNS, and MSPs managing client infrastructure. The UI must be efficient for power users
+while remaining approachable for those managing simpler setups. Primary context is focused
+operational work — deploying changes, reviewing drift, auditing history.
+
+### Brand Personality
+
+**Precise, Reliable, Clean.** Engineering-grade confidence. The interface should communicate
+trustworthiness and control — users are managing production DNS infrastructure, so the UI must
+feel solid and predictable. No whimsy, no unnecessary decoration.
+
+### Aesthetic Direction
+
+- **Visual tone:** Professional infrastructure tool. Dense but not cluttered. Information-rich
+  layouts with clear hierarchy.
+- **Reference:** PrimeVue Sakai template as practical starting point — extend with stronger
+  identity and tighter visual consistency.
+- **Theme:** Dark mode default with light mode support. User-customizable accent colors.
+- **Primary accent:** Indigo/purple palette — distinctive, modern, stands out from typical
+  blue-heavy infra tools.
+- **Typography:** System font stack for performance. Monospace for DNS records, IPs, zone names.
+- **Anti-patterns:** Avoid generic "admin template" feel. No gratuitous gradients, no rounded-
+  everything, no excessive whitespace that wastes screen real estate for data-heavy views.
+
+### Color System (PrimeVue tokens)
+
+- **Primary:** Indigo (PrimeVue `indigo` preset) — buttons, active nav, links, focus rings
+- **Surface (dark):** Neutral grays (`surface-900` background, `surface-800` cards, `surface-700`
+  borders)
+- **Surface (light):** White/light grays for light theme variant
+- **Semantic:** Green for success/adds, amber for warnings/modifications, red for errors/deletes,
+  blue for informational
+- **Accent customization:** Expose PrimeVue's theme switching to let users pick accent color
+
+### Design Principles
+
+1. **Data density over decoration.** DNS management is data-heavy. Prioritize showing information
+   efficiently. Tables should be scannable. Avoid large padding or empty hero sections.
+2. **Predictable interactions.** Every action should behave consistently. Same patterns for all
+   CRUD pages. Confirmations before destructive operations. Clear feedback for every action.
+3. **Progressive disclosure.** Show summary first, details on demand. Collapsed deployment diffs,
+   expandable audit entries, zone detail as a drill-down from the zone list.
+4. **Operational confidence.** The deployment preview/push flow is the most critical path. It
+   must be visually clear what will change, with unambiguous color coding and grouping.
+5. **Accessible by default.** Good contrast ratios, keyboard navigation, meaningful focus states,
+   reduced-motion support. Best-effort WCAG AA compliance without formal audit.
+
+### Frontend Code Standards
+
+- **Naming:** camelCase for variables/functions, PascalCase for components/types
+- **Components:** Single-file `.vue` with `<script setup lang="ts">`
+- **Formatting:** 2-space indent, single quotes, no semicolons (Prettier)
+- **State:** Pinia for global state (auth, notifications), local `ref`/`reactive` for page data
+- **API calls:** Typed `fetch` wrappers in `ui/src/api/`, never raw `fetch` in components
