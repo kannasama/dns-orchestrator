@@ -105,6 +105,12 @@ export interface RecordDiff {
   priority: number
 }
 
+export interface DriftAction {
+  name: string
+  type: string
+  action: 'adopt' | 'delete' | 'ignore'
+}
+
 export interface PreviewResult {
   zone_id: number
   zone_name: string

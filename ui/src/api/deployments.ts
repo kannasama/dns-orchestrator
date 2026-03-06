@@ -1,5 +1,5 @@
 import { get, post } from './client'
-import type { PreviewResult, DeploymentSnapshot, DeploymentDiff } from '../types'
+import type { PreviewResult, DeploymentSnapshot, DeploymentDiff, DriftAction } from '../types'
 
 export function previewZone(zoneId: number): Promise<PreviewResult> {
   return post(`/zones/${zoneId}/preview`)
@@ -7,9 +7,11 @@ export function previewZone(zoneId: number): Promise<PreviewResult> {
 
 export function pushZone(
   zoneId: number,
-  purgeDrift = false,
+  driftActions: DriftAction[] = [],
 ): Promise<{ message: string }> {
-  return post(`/zones/${zoneId}/push`, { purge_drift: purgeDrift })
+  return post(`/zones/${zoneId}/push`, {
+    drift_actions: driftActions,
+  })
 }
 
 export function listDeployments(

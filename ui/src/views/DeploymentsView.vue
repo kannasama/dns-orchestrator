@@ -9,6 +9,7 @@ import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import Skeleton from 'primevue/skeleton'
 import Divider from 'primevue/divider'
+import SelectButton from 'primevue/selectbutton'
 import PageHeader from '../components/shared/PageHeader.vue'
 import { useConfirmAction } from '../composables/useConfirm'
 import { useRole } from '../composables/useRole'
@@ -16,7 +17,7 @@ import { useNotificationStore } from '../stores/notification'
 import { ApiRequestError } from '../api/client'
 import * as zoneApi from '../api/zones'
 import * as deployApi from '../api/deployments'
-import type { Zone, PreviewResult, DeploymentSnapshot } from '../types'
+import type { Zone, PreviewResult, DeploymentSnapshot, DriftAction } from '../types'
 
 const route = useRoute()
 const { isOperator } = useRole()
@@ -52,12 +53,59 @@ const zonesWithChanges = computed(() =>
   previews.value.filter((p) => p.diffs.length > 0),
 )
 
+// Drift action tracking
+const driftActions = ref<Map<number, Map<string, 'adopt' | 'delete' | 'ignore'>>>(new Map())
+
+const allDriftResolved = computed(() => {
+  for (const preview of previews.value) {
+    const driftDiffs = preview.diffs.filter((d) => d.action === 'drift')
+    if (driftDiffs.length === 0) continue
+    const zoneActions = driftActions.value.get(preview.zone_id)
+    if (!zoneActions) return false
+    for (const diff of driftDiffs) {
+      if (!zoneActions.has(`${diff.name}\t${diff.type}`)) return false
+    }
+  }
+  return true
+})
+
+function setDriftAction(
+  zoneId: number,
+  name: string,
+  type: string,
+  action: 'adopt' | 'delete' | 'ignore',
+) {
+  if (!driftActions.value.has(zoneId)) {
+    driftActions.value.set(zoneId, new Map())
+  }
+  driftActions.value.get(zoneId)!.set(`${name}\t${type}`, action)
+}
+
+function getDriftAction(
+  zoneId: number,
+  name: string,
+  type: string,
+): 'adopt' | 'delete' | 'ignore' | undefined {
+  return driftActions.value.get(zoneId)?.get(`${name}\t${type}`)
+}
+
+function allDriftResolvedForZone(zoneId: number): boolean {
+  const preview = previews.value.find((p) => p.zone_id === zoneId)
+  if (!preview) return false
+  const driftDiffs = preview.diffs.filter((d) => d.action === 'drift')
+  if (driftDiffs.length === 0) return true
+  const zoneActions = driftActions.value.get(zoneId)
+  if (!zoneActions) return false
+  return driftDiffs.every((d) => zoneActions.has(`${d.name}\t${d.type}`))
+}
+
 async function handlePreview() {
   if (selectedZoneIds.value.length === 0) return
   previewing.value = true
   previews.value = []
   pushedZones.value.clear()
   failedZones.value.clear()
+  driftActions.value.clear()
   try {
     const results = await Promise.all(
       selectedZoneIds.value.map((id) => deployApi.previewZone(id)),
@@ -74,7 +122,15 @@ async function handlePreview() {
 async function pushZone(zoneId: number) {
   pushingZones.value.add(zoneId)
   try {
-    await deployApi.pushZone(zoneId)
+    const zoneActions = driftActions.value.get(zoneId)
+    const actions: DriftAction[] = []
+    if (zoneActions) {
+      for (const [key, action] of zoneActions) {
+        const [name, type] = key.split('\t')
+        actions.push({ name, type, action })
+      }
+    }
+    await deployApi.pushZone(zoneId, actions)
     pushedZones.value.add(zoneId)
     notify.success('Deployed', `Zone ${previews.value.find((p) => p.zone_id === zoneId)?.zone_name}`)
   } catch (err) {
@@ -226,7 +282,7 @@ onMounted(async () => {
         label="Push All"
         icon="pi pi-play"
         severity="success"
-        :disabled="previewing || pushingZones.size > 0"
+        :disabled="previewing || pushingZones.size > 0 || !allDriftResolved"
         @click="handlePushAll"
       />
     </div>
@@ -272,6 +328,7 @@ onMounted(async () => {
             size="small"
             severity="success"
             :loading="pushingZones.has(preview.zone_id)"
+            :disabled="!allDriftResolvedForZone(preview.zone_id)"
             @click="handlePushSingle(preview.zone_id)"
           />
         </template>
@@ -299,6 +356,21 @@ onMounted(async () => {
                   {{ diff.provider_value }}
                 </span>
               </div>
+            </div>
+            <div v-if="diff.action === 'drift' && isOperator" class="drift-actions">
+              <SelectButton
+                :modelValue="getDriftAction(preview.zone_id, diff.name, diff.type)"
+                @update:modelValue="(v: string) => setDriftAction(preview.zone_id, diff.name, diff.type, v as 'adopt' | 'delete' | 'ignore')"
+                :options="[
+                  { label: 'Adopt', value: 'adopt' },
+                  { label: 'Delete', value: 'delete' },
+                  { label: 'Ignore', value: 'ignore' },
+                ]"
+                optionLabel="label"
+                optionValue="value"
+                :allowEmpty="false"
+                size="small"
+              />
             </div>
           </div>
         </div>
@@ -463,6 +535,10 @@ onMounted(async () => {
 .text-muted {
   color: var(--p-surface-400);
   text-decoration: line-through;
+}
+
+.drift-actions {
+  margin-top: 0.5rem;
 }
 
 .in-sync {
