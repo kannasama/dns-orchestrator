@@ -15,8 +15,9 @@ architectural decisions, and development roadmap so context transfers across mac
 - **Phase 7 complete:** Deployment Pipeline + GitOps
 - **Phase 8 complete:** REST API Hardening + Docker Compose
 - **Phase 9 complete:** Web UI (Vue 3 + TypeScript + PrimeVue)
-- **Next task:** Phase 10
-- **Tests:** 235 total (129 pass, 106 skip — DB integration tests need `DNS_DB_URL`)
+- **Phase 10 complete:** Cloudflare + DigitalOcean providers, conformance tests
+- **Next task:** Phase 11
+- **Tests:** 268 total (162 pass, 106 skip — DB integration tests need `DNS_DB_URL`)
 
 Build and test:
 ```bash
@@ -241,11 +242,22 @@ Crow serves built static files in production (single binary).
 
 ---
 
-### Phase 10 — Additional Providers
+### Phase 10 — Additional Providers ← COMPLETE
 
-- `src/providers/CloudflareProvider.cpp` — Cloudflare API v4
-- `src/providers/DigitalOceanProvider.cpp` — DigitalOcean API v2
-- Provider-agnostic conformance test suite
+**Summary:** Cloudflare API v4 and DigitalOcean API v2 providers fully implemented. Provider-
+specific metadata support (Cloudflare proxy toggle). Per-provider diff/deployment pipeline
+for correct multi-provider zone management. Conformance test suite.
+
+**Deliverables:**
+- `src/providers/CloudflareProvider.cpp` — full Cloudflare API v4 client with zone ID caching
+- `src/providers/DigitalOceanProvider.cpp` — full DigitalOcean API v2 client
+- `include/common/Types.hpp` — `jProviderMeta` on DnsRecord, `ProviderPreviewResult` type
+- `scripts/db/v004/001_add_provider_meta.sql` — provider_meta JSONB column on records
+- `src/core/DiffEngine.cpp` — per-provider diff computation, provider metadata propagation
+- `src/core/DeploymentEngine.cpp` — per-provider push execution
+- `ui/src/views/ZoneDetailView.vue` — Cloudflare proxy toggle and badge
+
+**Tests:** 268 total (162 pass, 106 skip — 33 new tests added in Phase 10)
 
 ---
 

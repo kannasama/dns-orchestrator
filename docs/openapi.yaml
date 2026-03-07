@@ -313,6 +313,27 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RecordDiff"
+        providers:
+          type: array
+          description: Per-provider diff breakdown (present for multi-provider zones)
+          items:
+            $ref: "#/components/schemas/ProviderPreview"
+
+    ProviderPreview:
+      type: object
+      properties:
+        provider_id:
+          type: integer
+        provider_name:
+          type: string
+        provider_type:
+          type: string
+        has_drift:
+          type: boolean
+        diffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecordDiff"
 
     RecordDiff:
       type: object
@@ -332,6 +353,10 @@ components:
           type: integer
         priority:
           type: integer
+        provider_meta:
+          type: object
+          nullable: true
+          description: "Provider-specific metadata (e.g., {\"proxied\": true} for Cloudflare)"
 
     DeploymentSnapshot:
       type: object
