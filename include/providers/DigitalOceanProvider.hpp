@@ -1,11 +1,16 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "providers/IProvider.hpp"
+
+namespace httplib {
+class Client;
+}
 
 namespace dns::providers {
 
@@ -26,10 +31,25 @@ class DigitalOceanProvider : public IProvider {
   bool deleteRecord(const std::string& sZoneName,
                     const std::string& sProviderRecordId) override;
 
+  /// Parse DNS records from DigitalOcean /domains/{domain}/records response.
+  /// Converts relative names to FQDNs using the zone name.
+  /// Public for unit testing.
+  static std::vector<common::DnsRecord> parseRecordsResponse(const std::string& sJson,
+                                                              const std::string& sZoneName);
+
+  /// Convert DigitalOcean relative record name to FQDN.
+  /// "@" → zoneName, "www" → "www.zoneName"
+  static std::string toFqdn(const std::string& sName, const std::string& sZoneName);
+
+  /// Convert FQDN to DigitalOcean relative record name.
+  /// "example.com" → "@", "www.example.com" → "www"
+  static std::string toRelative(const std::string& sFqdn, const std::string& sZoneName);
+
  private:
   std::string _sApiEndpoint;
   std::string _sToken;
   nlohmann::json _jConfig;
+  std::unique_ptr<httplib::Client> _upClient;
 };
 
 }  // namespace dns::providers
