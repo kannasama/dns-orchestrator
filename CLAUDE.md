@@ -16,7 +16,7 @@ architectural decisions, and development roadmap so context transfers across mac
 - **Phase 8 complete:** REST API Hardening + Docker Compose
 - **Phase 9 complete:** Web UI (Vue 3 + TypeScript + PrimeVue)
 - **Next task:** Phase 10
-- **Tests:** 218 total (127 pass, 91 skip — DB integration tests need `DNS_DB_URL`)
+- **Tests:** 235 total (129 pass, 106 skip — DB integration tests need `DNS_DB_URL`)
 
 Build and test:
 ```bash
@@ -221,6 +221,23 @@ Crow serves built static files in production (single binary).
 - `include/common/Config.hpp` — added `sUiDir` field, loaded from `DNS_UI_DIR`
 
 **Design:** See `docs/plans/2026-03-05-phase-9-web-ui.md` for full design spec.
+
+---
+
+### v0.9.3 — Zone Management Improvements ← COMPLETE
+
+**Summary:** Five deliverables improving zone management, deployment flow, and import capabilities.
+
+**Deliverables:**
+1. **SOA/NS Drift Control** — `manage_soa`/`manage_ns` zone flags; DiffEngine filters SOA/NS records
+2. **Conditional Record Fields** — Priority field shows only for MX/SRV records
+3. **Drift Resolution** — Per-record adopt/delete/ignore actions during deployment push
+4. **Batch Record Import** — CSV, JSON, DNSControl, and provider import with preview
+5. **Accent Color Bugfix** — `updatePreset()` called on accent change
+
+**Schema:** `scripts/db/v003/001_add_soa_ns_flags.sql`
+**New endpoints:** `POST /zones/{id}/records/batch`, `GET /zones/{id}/provider-records`
+**Changed endpoints:** `POST /zones/{id}/push` (drift_actions replaces purge_drift)
 
 ---
 
