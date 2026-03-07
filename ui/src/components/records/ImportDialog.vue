@@ -61,6 +61,7 @@ function handleParse() {
     default:
       return
   }
+  assignUids(result.records)
   parseResult.value = result
   selectedRecords.value = [...result.records]
 }
@@ -76,6 +77,7 @@ async function handleFetchProvider() {
       ttl: r.ttl,
       priority: r.priority,
     }))
+    assignUids(records)
     parseResult.value = { records, warnings: [] }
     selectedRecords.value = [...records]
   } catch (err) {
@@ -118,6 +120,12 @@ function resetState() {
   rawInput.value = ''
   parseResult.value = null
   selectedRecords.value = []
+}
+
+function assignUids(records: RecordCreate[]) {
+  records.forEach((r, i) => {
+    ;(r as any)._uid = `${r.name}:${r.type}:${r.value_template}:${i}`
+  })
 }
 
 const isTextTab = computed(() => activeTab.value < 3)
@@ -184,7 +192,7 @@ const placeholder = computed(() => {
         size="small"
         :paginator="parseResult.records.length > 25"
         :rows="25"
-        dataKey="name"
+        dataKey="_uid"
       >
         <Column selectionMode="multiple" style="width: 3rem" />
         <Column field="name" header="Name">
