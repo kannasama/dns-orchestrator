@@ -16,7 +16,7 @@ architectural decisions, and development roadmap so context transfers across mac
 - **Phase 8 complete:** REST API Hardening + Docker Compose
 - **Phase 9 complete:** Web UI (Vue 3 + TypeScript + PrimeVue)
 - **Phase 10 complete:** Cloudflare + DigitalOcean providers, conformance tests
-- **Next task:** Phase 11
+- **Next task:** v0.9.5 (bug fixes, UX improvements, user/group/API key management)
 - **Tests:** 268 total (162 pass, 106 skip — DB integration tests need `DNS_DB_URL`)
 
 Build and test:
@@ -261,6 +261,43 @@ for correct multi-provider zone management. Conformance test suite.
 
 ---
 
+### v0.9.5 — Bug Fixes, UX Improvements, User Management ← IN PROGRESS
+
+**Summary:** Feedback-driven iteration covering bug fixes, UX polish, dashboard enhancements,
+and user/group/API key management. Full design in `docs/plans/2026-03-07-v0.9.5-design.md`.
+
+**Bug fixes (3):**
+1. Views providers column not populating `provider_ids` in API response
+2. Trailing slash on provider endpoints producing double-slash in API calls
+3. SOA record appearing in PowerDNS import when `manage_soa` is false
+
+**UX improvements (8):**
+4. Record sorting — multi-sort by type then name
+5. Color panel — 16-color Sakai-style grid (noir through rose)
+6. Dashboard — view column on zone list
+7. Zone view assignment — editable on update (both zone and view sides)
+8. Deployment retention — show default value hint in zone form
+9. Variable autocomplete (`{{` trigger) + browse button in record editing
+10. Dashboard — provider health status section via `IProvider::testConnectivity()`
+11. Dashboard — zone sync status with cached state, background maintenance task
+    (`DNS_SYNC_CHECK_INTERVAL`, default 3600s), and manual refresh
+
+**New features (4):**
+12. User management — CRUD, group assignment, forced password change on first login/reset
+13. Group management — CRUD with role (admin/operator/viewer)
+14. User profile — self-service email edit, password change
+15. API key management — create/list/revoke with one-time key display
+
+**Schema:** `scripts/db/v005/` migration — `zones.sync_status`, `zones.sync_checked_at`,
+`users.force_password_change`
+
+**New endpoints (19):** Users (6), Groups (5), Profile (2), API Keys (3), Provider Health (1),
+Sync Check (2)
+
+**Deferred:** Self-service password reset (requires SMTP/email infrastructure)
+
+---
+
 ### Phase 11 — TUI Client
 
 Separate repository: `meridian-dns-tui`. Consumes REST API. See `docs/TUI_DESIGN.md`.
@@ -324,6 +361,7 @@ only for non-owning references.
 | `ui/src/stores/` | Pinia stores: auth, theme, notification |
 | `ui/src/theme/preset.ts` | PrimeVue Aura preset with indigo primary |
 | `docs/plans/2026-03-05-phase-9-web-ui.md` | Phase 9 design spec |
+| `docs/plans/2026-03-07-v0.9.5-design.md` | v0.9.5 design spec (bug fixes, UX, user mgmt) |
 | `tests/unit/` | Unit tests (MaintenanceScheduler, SamlReplayCache, JWT, Crypto, RouteHelpers, RequestValidator, RateLimiter) |
 | `tests/integration/` | Integration tests (AuthService, AuthMiddleware, repositories, API validation) |
 
