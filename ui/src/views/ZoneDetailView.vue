@@ -10,6 +10,7 @@ import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
 import Skeleton from 'primevue/skeleton'
 import Tag from 'primevue/tag'
+import ToggleSwitch from 'primevue/toggleswitch'
 import PageHeader from '../components/shared/PageHeader.vue'
 import ImportDialog from '../components/records/ImportDialog.vue'
 import EmptyState from '../components/shared/EmptyState.vue'
@@ -19,7 +20,9 @@ import { useNotificationStore } from '../stores/notification'
 import { ApiRequestError } from '../api/client'
 import * as zoneApi from '../api/zones'
 import * as recordApi from '../api/records'
-import type { Zone, DnsRecord, RecordCreate } from '../types'
+import * as viewApi from '../api/views'
+import * as providerApi from '../api/providers'
+import type { Zone, DnsRecord, RecordCreate, Provider } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,6 +34,8 @@ const zoneId = Number(route.params.id)
 const zone = ref<Zone | null>(null)
 const records = ref<DnsRecord[]>([])
 const loading = ref(true)
+const viewProviders = ref<Provider[]>([])
+const proxied = ref(false)
 
 const dialogVisible = ref(false)
 const importDialogVisible = ref(false)
@@ -48,12 +53,35 @@ const recordTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'NS', 'PTR'].map(
   value: t,
 }))
 
+const hasCloudflareProvider = computed(() =>
+  viewProviders.value.some((p) => p.type === 'cloudflare'),
+)
+
+const showProxyToggle = computed(
+  () =>
+    hasCloudflareProvider.value &&
+    ['A', 'AAAA', 'CNAME'].includes(form.value.type),
+)
+
 async function fetchData() {
   loading.value = true
   try {
     const [z, r] = await Promise.all([zoneApi.getZone(zoneId), recordApi.listRecords(zoneId)])
     zone.value = z
     records.value = r
+
+    // Fetch view providers to detect Cloudflare
+    if (z.view_id) {
+      try {
+        const view = await viewApi.getView(z.view_id)
+        const providers = await Promise.all(
+          view.provider_ids.map((id) => providerApi.getProvider(id)),
+        )
+        viewProviders.value = providers
+      } catch {
+        // Non-critical — proxy toggle just won't show
+      }
+    }
   } catch {
     notify.error('Failed to load zone')
   } finally {
@@ -64,6 +92,7 @@ async function fetchData() {
 function openCreateRecord() {
   editingRecordId.value = null
   form.value = { name: '', type: 'A', ttl: 300, value_template: '', priority: 0 }
+  proxied.value = false
   dialogVisible.value = true
 }
 
@@ -76,16 +105,21 @@ function openEditRecord(rec: DnsRecord) {
     value_template: rec.value_template,
     priority: rec.priority,
   }
+  proxied.value = (rec.provider_meta as Record<string, unknown>)?.proxied === true
   dialogVisible.value = true
 }
 
 async function handleSubmitRecord() {
   try {
+    const payload: RecordCreate = { ...form.value }
+    if (hasCloudflareProvider.value && ['A', 'AAAA', 'CNAME'].includes(payload.type)) {
+      payload.provider_meta = { proxied: proxied.value }
+    }
     if (editingRecordId.value !== null) {
-      await recordApi.updateRecord(zoneId, editingRecordId.value, form.value)
+      await recordApi.updateRecord(zoneId, editingRecordId.value, payload)
       notify.success('Record updated')
     } else {
-      await recordApi.createRecord(zoneId, form.value)
+      await recordApi.createRecord(zoneId, payload)
       notify.success('Record created')
     }
     dialogVisible.value = false
@@ -124,6 +158,9 @@ watch(
   (newType) => {
     if (newType !== 'MX' && newType !== 'SRV') {
       form.value.priority = 0
+    }
+    if (!['A', 'AAAA', 'CNAME'].includes(newType)) {
+      proxied.value = false
     }
   },
 )
@@ -213,6 +250,11 @@ onMounted(fetchData)
             <span class="font-mono">{{ data.priority }}</span>
           </template>
         </Column>
+        <Column v-if="hasCloudflareProvider" header="Proxy" style="width: 5rem">
+          <template #body="{ data }">
+            <Tag v-if="data.provider_meta?.proxied" value="Proxied" severity="info" />
+          </template>
+        </Column>
         <Column v-if="isOperator" header="Actions" style="width: 6rem; text-align: right">
           <template #body="{ data }">
             <div class="action-buttons">
@@ -282,6 +324,13 @@ onMounted(fetchData)
             <InputNumber id="rec-priority" v-model="form.priority" :min="0" class="w-full" />
           </div>
         </div>
+        <div v-if="showProxyToggle" class="field">
+          <div class="proxy-row">
+            <label for="rec-proxied">Cloudflare Proxy</label>
+            <ToggleSwitch id="rec-proxied" v-model="proxied" />
+          </div>
+          <small class="text-muted">Route traffic through Cloudflare's CDN/WAF</small>
+        </div>
         <Button type="submit" :label="editingRecordId ? 'Save' : 'Create'" class="w-full" />
       </form>
     </Dialog>
@@ -318,6 +367,16 @@ onMounted(fetchData)
 .form-row {
   display: flex;
   gap: 1rem;
+}
+
+.proxy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.text-muted {
+  color: var(--p-text-muted-color);
 }
 
 .flex-1 {

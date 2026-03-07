@@ -63,6 +63,7 @@ export interface DnsRecord {
   ttl: number
   value_template: string
   priority: number
+  provider_meta: Record<string, unknown> | null
   last_audit_id: number | null
   created_at: number
   updated_at: number
@@ -74,6 +75,7 @@ export interface RecordCreate {
   ttl?: number
   value_template: string
   priority?: number
+  provider_meta?: Record<string, unknown>
 }
 
 export interface Variable {
