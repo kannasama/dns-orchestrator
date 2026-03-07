@@ -1031,6 +1031,79 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessageResponse"
 
+  /zones/{id}/records/batch:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      summary: Batch create records
+      tags: [Records]
+      description: "Required role: operator. Creates multiple records in a single transaction."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 500
+              items:
+                $ref: "#/components/schemas/RecordCreate"
+      responses:
+        "201":
+          description: Records created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ids:
+                    type: array
+                    items:
+                      type: integer
+                  count:
+                    type: integer
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /zones/{id}/provider-records:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      summary: Fetch raw records from provider
+      tags: [Records]
+      description: "Required role: viewer. Returns records currently on the DNS provider without computing a diff."
+      responses:
+        "200":
+          description: Provider records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    type:
+                      type: string
+                    value:
+                      type: string
+                    ttl:
+                      type: integer
+                    priority:
+                      type: integer
+
   /zones/{id}/preview:
     parameters:
       - name: id
