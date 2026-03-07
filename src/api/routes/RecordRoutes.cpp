@@ -230,6 +230,61 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
           return errorResponse(e);
         }
       });
+
+  // POST /api/v1/zones/<int>/records/batch
+  CROW_ROUTE(app, "/api/v1/zones/<int>/records/batch").methods("POST"_method)(
+      [this](const crow::request& req, int iZoneId) -> crow::response {
+        try {
+          auto rcCtx = authenticate(_amMiddleware, req);
+          requireRole(rcCtx, "operator");
+
+          auto jBody = nlohmann::json::parse(req.body);
+          if (!jBody.is_array()) {
+            throw common::ValidationError("INVALID_BODY", "Request body must be a JSON array");
+          }
+          if (jBody.empty()) {
+            throw common::ValidationError("EMPTY_BATCH", "Batch cannot be empty");
+          }
+          if (jBody.size() > 500) {
+            throw common::ValidationError("BATCH_TOO_LARGE", "Maximum 500 records per batch");
+          }
+
+          std::vector<std::tuple<std::string, std::string, int, std::string, int>> vRecords;
+          vRecords.reserve(jBody.size());
+
+          for (size_t i = 0; i < jBody.size(); ++i) {
+            const auto& jRec = jBody[i];
+            std::string sName = jRec.value("name", "");
+            std::string sType = jRec.value("type", "");
+            int iTtl = jRec.value("ttl", 300);
+            std::string sValueTemplate = jRec.value("value_template", "");
+            int iPriority = jRec.value("priority", 0);
+
+            try {
+              RequestValidator::validateRecordName(sName);
+              RequestValidator::validateRecordType(sType);
+              RequestValidator::validateTtl(iTtl);
+              RequestValidator::validateValueTemplate(sValueTemplate);
+            } catch (const common::ValidationError& e) {
+              throw common::ValidationError(
+                  "RECORD_VALIDATION_FAILED",
+                  "Record " + std::to_string(i) + ": " + e.what());
+            }
+
+            vRecords.emplace_back(sName, sType, iTtl, sValueTemplate, iPriority);
+          }
+
+          auto vIds = _rrRepo.createBatch(iZoneId, vRecords);
+
+          nlohmann::json jIds = nlohmann::json::array();
+          for (auto id : vIds) jIds.push_back(id);
+          return jsonResponse(201, {{"ids", jIds}, {"count", vIds.size()}});
+        } catch (const common::AppError& e) {
+          return errorResponse(e);
+        } catch (const nlohmann::json::exception&) {
+          return invalidJsonResponse();
+        }
+      });
 }
 
 }  // namespace dns::api::routes

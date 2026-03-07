@@ -155,4 +155,29 @@ int64_t RecordRepository::upsertById(int64_t iId, int64_t iZoneId,
   return result.one_row()[0].as<int64_t>();
 }
 
+std::vector<int64_t> RecordRepository::createBatch(
+    int64_t iZoneId,
+    const std::vector<std::tuple<std::string, std::string, int, std::string, int>>& vRecords) {
+  auto cg = _cpPool.checkout();
+  pqxx::work txn(*cg);
+
+  std::vector<int64_t> vIds;
+  vIds.reserve(vRecords.size());
+
+  try {
+    for (const auto& [sName, sType, iTtl, sValueTemplate, iPriority] : vRecords) {
+      auto result = txn.exec(
+          "INSERT INTO records (zone_id, name, type, ttl, value_template, priority) "
+          "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+          pqxx::params{iZoneId, sName, sType, iTtl, sValueTemplate, iPriority});
+      vIds.push_back(result.one_row()[0].as<int64_t>());
+    }
+    txn.commit();
+  } catch (const pqxx::foreign_key_violation&) {
+    throw common::ValidationError("INVALID_ZONE_ID",
+                                  "Zone with id " + std::to_string(iZoneId) + " not found");
+  }
+  return vIds;
+}
+
 }  // namespace dns::dal
