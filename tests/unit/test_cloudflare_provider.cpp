@@ -69,7 +69,7 @@ TEST(CloudflareParseTest, SingleARecord) {
   auto vRecords = CloudflareProvider::parseRecordsResponse(sJson);
   ASSERT_EQ(vRecords.size(), 1u);
   EXPECT_EQ(vRecords[0].sProviderRecordId, "rec-uuid-1");
-  EXPECT_EQ(vRecords[0].sName, "www.example.com");
+  EXPECT_EQ(vRecords[0].sName, "www.example.com.");
   EXPECT_EQ(vRecords[0].sType, "A");
   EXPECT_EQ(vRecords[0].uTtl, 300u);
   EXPECT_EQ(vRecords[0].sValue, "192.168.1.1");
@@ -113,7 +113,7 @@ TEST(CloudflareParseTest, MxRecordWithPriority) {
   ASSERT_EQ(vRecords.size(), 1u);
   EXPECT_EQ(vRecords[0].sType, "MX");
   EXPECT_EQ(vRecords[0].iPriority, 10);
-  EXPECT_EQ(vRecords[0].sValue, "mail.example.com");
+  EXPECT_EQ(vRecords[0].sValue, "mail.example.com.");
 }
 
 TEST(CloudflareParseTest, MultipleRecords) {
@@ -147,8 +147,28 @@ TEST(CloudflareParseTest, TxtRecord) {
   })";
   auto vRecords = CloudflareProvider::parseRecordsResponse(sJson);
   ASSERT_EQ(vRecords.size(), 1u);
+  EXPECT_EQ(vRecords[0].sName, "example.com.");
   EXPECT_EQ(vRecords[0].sType, "TXT");
   EXPECT_EQ(vRecords[0].sValue, "v=spf1 include:_spf.google.com ~all");
+}
+
+TEST(CloudflareParseTest, CnameValueGetsTrailingDot) {
+  std::string sJson = R"({
+    "success": true,
+    "result": [{
+      "id": "rec-cname-1",
+      "name": "www.example.com",
+      "type": "CNAME",
+      "content": "example.com",
+      "ttl": 300,
+      "proxied": false
+    }],
+    "result_info": {"page": 1, "total_pages": 1}
+  })";
+  auto vRecords = CloudflareProvider::parseRecordsResponse(sJson);
+  ASSERT_EQ(vRecords.size(), 1u);
+  EXPECT_EQ(vRecords[0].sName, "www.example.com.");
+  EXPECT_EQ(vRecords[0].sValue, "example.com.");
 }
 
 // --- buildRecordBody tests ---

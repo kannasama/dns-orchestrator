@@ -91,6 +91,14 @@ std::vector<common::DnsRecord> PowerDnsProvider::parseZoneResponse(const std::st
       if (jRecord.value("disabled", false)) continue;
 
       std::string sContent = jRecord.at("content").get<std::string>();
+
+      // TXT records: PowerDNS returns values with surrounding quotes — strip them
+      // so they match the unquoted values stored in our database
+      if (sType == "TXT" && sContent.size() >= 2 && sContent.front() == '"' &&
+          sContent.back() == '"') {
+        sContent = sContent.substr(1, sContent.size() - 2);
+      }
+
       int iPriority = 0;
 
       // MX and SRV records: priority is the first token in content

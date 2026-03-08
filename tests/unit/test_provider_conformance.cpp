@@ -98,7 +98,7 @@ TEST_F(ProviderConformanceTest, AllProvidersMxPriority) {
     auto v = dns::providers::CloudflareProvider::parseRecordsResponse(sJson);
     ASSERT_EQ(v.size(), 1u);
     EXPECT_EQ(v[0].iPriority, 10);
-    EXPECT_EQ(v[0].sValue, "mail.example.com");
+    EXPECT_EQ(v[0].sValue, "mail.example.com.");
   }
 
   // DigitalOcean

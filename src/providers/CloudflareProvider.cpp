@@ -135,6 +135,18 @@ std::vector<common::DnsRecord> CloudflareProvider::parseRecordsResponse(
     dr.sValue = jRec.at("content").get<std::string>();
     dr.iPriority = jRec.value("priority", 0);
 
+    // Cloudflare returns names without trailing dots — normalize to FQDN
+    if (!dr.sName.empty() && dr.sName.back() != '.') {
+      dr.sName += '.';
+    }
+
+    // Record types whose values are domain names — add trailing dot if missing
+    if ((dr.sType == "CNAME" || dr.sType == "MX" || dr.sType == "NS" ||
+         dr.sType == "SRV" || dr.sType == "PTR") &&
+        !dr.sValue.empty() && dr.sValue.back() != '.') {
+      dr.sValue += '.';
+    }
+
     // Capture provider-specific metadata
     bool bProxied = jRec.value("proxied", false);
     bool bAutoTtl = (dr.uTtl == 1);

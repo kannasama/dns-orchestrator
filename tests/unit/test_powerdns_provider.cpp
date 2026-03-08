@@ -106,6 +106,37 @@ TEST(PowerDnsParseTest, SoaRecordIncluded) {
   EXPECT_EQ(vRecords[0].sType, "SOA");
 }
 
+TEST(PowerDnsParseTest, TxtRecordQuotesStripped) {
+  std::string sJson = R"({
+    "name": "example.com.",
+    "rrsets": [{
+      "name": "example.com.",
+      "type": "TXT",
+      "ttl": 3600,
+      "records": [{"content": "\"v=spf1 include:_spf.google.com ~all\"", "disabled": false}]
+    }]
+  })";
+  auto vRecords = PowerDnsProvider::parseZoneResponse(sJson);
+  ASSERT_EQ(vRecords.size(), 1u);
+  EXPECT_EQ(vRecords[0].sType, "TXT");
+  EXPECT_EQ(vRecords[0].sValue, "v=spf1 include:_spf.google.com ~all");
+}
+
+TEST(PowerDnsParseTest, TxtRecordWithoutQuotesUnchanged) {
+  std::string sJson = R"({
+    "name": "example.com.",
+    "rrsets": [{
+      "name": "example.com.",
+      "type": "TXT",
+      "ttl": 3600,
+      "records": [{"content": "v=spf1 ~all", "disabled": false}]
+    }]
+  })";
+  auto vRecords = PowerDnsProvider::parseZoneResponse(sJson);
+  ASSERT_EQ(vRecords.size(), 1u);
+  EXPECT_EQ(vRecords[0].sValue, "v=spf1 ~all");
+}
+
 // --- makeRecordId / parseRecordId tests ---
 
 TEST(PowerDnsRecordIdTest, MakeAndParse) {
