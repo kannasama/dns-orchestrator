@@ -64,4 +64,18 @@ export function getLightPreset(name: string): ThemePreset {
   return lightPresets.find(p => p.name === name) ?? lightDefault
 }
 
+export function registerCustomPresets(presets: ThemePreset[]) {
+  for (const preset of presets) {
+    if (preset.mode === 'dark') {
+      if (!darkPresets.some(p => p.name === preset.name)) {
+        darkPresets.push(preset)
+      }
+    } else {
+      if (!lightPresets.some(p => p.name === preset.name)) {
+        lightPresets.push(preset)
+      }
+    }
+  }
+}
+
 export type { ThemePreset, SurfacePalette } from './types'

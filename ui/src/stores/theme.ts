@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { updatePreset } from '@primevue/themes'
-import { getDarkPreset, getLightPreset } from '../theme/presets'
+import { getDarkPreset, getLightPreset, registerCustomPresets } from '../theme/presets'
 import type { ThemePreset } from '../theme/presets'
+import { listCustomThemes } from '../api/themes'
 
 export type AccentColor =
   | 'noir' | 'emerald' | 'green' | 'lime'
@@ -122,6 +123,39 @@ export const useThemeStore = defineStore('theme', () => {
     gridFontSize.value = size
   }
 
+  async function loadCustomPresets() {
+    try {
+      const customs = await listCustomThemes()
+      if (customs.length > 0) {
+        const mapped: ThemePreset[] = customs.map(c => ({
+          name: c.name,
+          label: c.label,
+          mode: c.mode,
+          defaultAccent: c.defaultAccent,
+          surface: {
+            0: c.surface['0'] ?? '#ffffff',
+            50: c.surface['50'] ?? '',
+            100: c.surface['100'] ?? '',
+            200: c.surface['200'] ?? '',
+            300: c.surface['300'] ?? '',
+            400: c.surface['400'] ?? '',
+            500: c.surface['500'] ?? '',
+            600: c.surface['600'] ?? '',
+            700: c.surface['700'] ?? '',
+            800: c.surface['800'] ?? '',
+            900: c.surface['900'] ?? '',
+            950: c.surface['950'] ?? '',
+          },
+        }))
+        registerCustomPresets(mapped)
+        // Re-apply current preset in case a custom preset is active
+        applyPreset()
+      }
+    } catch {
+      // Custom themes are optional — fail silently
+    }
+  }
+
   // Persist to localStorage
   watch(darkMode, (val) => {
     localStorage.setItem('theme-dark', String(val))
@@ -164,11 +198,12 @@ export const useThemeStore = defineStore('theme', () => {
   applyDarkMode()
   applyPreset()
   applyFonts()
+  loadCustomPresets()
 
   return {
     darkMode, darkTheme, lightTheme, accent, accentOverride,
     fontFamily, fontSize, gridFontSize, activePreset,
     toggleDarkMode, setAccent, setDarkTheme, setLightTheme,
-    setFontFamily, setFontSize, setGridFontSize,
+    setFontFamily, setFontSize, setGridFontSize, loadCustomPresets,
   }
 })
