@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { updatePreset } from '@primevue/themes'
+import { getDarkPreset, getLightPreset } from '../theme/presets'
+import type { ThemePreset } from '../theme/presets'
 
 export type AccentColor =
   | 'noir' | 'emerald' | 'green' | 'lime'
@@ -10,8 +12,20 @@ export type AccentColor =
 
 export const useThemeStore = defineStore('theme', () => {
   const darkMode = ref(localStorage.getItem('theme-dark') !== 'false')
+  const darkTheme = ref(localStorage.getItem('theme-dark-preset') || 'default')
+  const lightTheme = ref(localStorage.getItem('theme-light-preset') || 'default')
   const accent = ref<AccentColor>(
     (localStorage.getItem('theme-accent') as AccentColor) || 'indigo',
+  )
+  const accentOverride = ref(localStorage.getItem('theme-accent-override') === 'true')
+
+  // Font customization
+  const fontFamily = ref(localStorage.getItem('theme-font-family') || 'system')
+  const fontSize = ref(localStorage.getItem('theme-font-size') || '14')
+  const gridFontSize = ref(localStorage.getItem('theme-grid-font-size') || '13')
+
+  const activePreset = computed<ThemePreset>(() =>
+    darkMode.value ? getDarkPreset(darkTheme.value) : getLightPreset(lightTheme.value),
   )
 
   function applyDarkMode() {
@@ -43,27 +57,118 @@ export const useThemeStore = defineStore('theme', () => {
     })
   }
 
+  function applySurface(preset: ThemePreset) {
+    const mode = preset.mode === 'dark' ? 'dark' : 'light'
+    updatePreset({
+      semantic: {
+        colorScheme: {
+          [mode]: {
+            surface: { ...preset.surface },
+          },
+        },
+      },
+    })
+  }
+
+  function applyFonts() {
+    const root = document.documentElement
+    const family = fontFamily.value === 'system'
+      ? "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+      : fontFamily.value === 'inter'
+        ? "'Inter', sans-serif"
+        : `'${fontFamily.value}', sans-serif`
+    root.style.setProperty('--app-font-family', family)
+    root.style.setProperty('--app-font-size', `${fontSize.value}px`)
+    root.style.setProperty('--app-grid-font-size', `${gridFontSize.value}px`)
+  }
+
+  function applyPreset() {
+    const preset = activePreset.value
+    applySurface(preset)
+    if (!accentOverride.value) {
+      accent.value = preset.defaultAccent as AccentColor
+    }
+    applyAccent(accent.value)
+  }
+
   function toggleDarkMode() {
     darkMode.value = !darkMode.value
   }
 
   function setAccent(color: AccentColor) {
+    accentOverride.value = true
     accent.value = color
   }
 
+  function setDarkTheme(name: string) {
+    darkTheme.value = name
+    accentOverride.value = false
+  }
+
+  function setLightTheme(name: string) {
+    lightTheme.value = name
+    accentOverride.value = false
+  }
+
+  function setFontFamily(family: string) {
+    fontFamily.value = family
+  }
+
+  function setFontSize(size: string) {
+    fontSize.value = size
+  }
+
+  function setGridFontSize(size: string) {
+    gridFontSize.value = size
+  }
+
+  // Persist to localStorage
   watch(darkMode, (val) => {
     localStorage.setItem('theme-dark', String(val))
     applyDarkMode()
+    applyPreset()
+  })
+
+  watch(darkTheme, (val) => {
+    localStorage.setItem('theme-dark-preset', val)
+    if (darkMode.value) applyPreset()
+  })
+
+  watch(lightTheme, (val) => {
+    localStorage.setItem('theme-light-preset', val)
+    if (!darkMode.value) applyPreset()
   })
 
   watch(accent, (val) => {
     localStorage.setItem('theme-accent', val)
+    localStorage.setItem('theme-accent-override', String(accentOverride.value))
     applyAccent(val)
+  })
+
+  watch(fontFamily, (val) => {
+    localStorage.setItem('theme-font-family', val)
+    applyFonts()
+  })
+
+  watch(fontSize, (val) => {
+    localStorage.setItem('theme-font-size', val)
+    applyFonts()
+  })
+
+  watch(gridFontSize, (val) => {
+    localStorage.setItem('theme-grid-font-size', val)
+    applyFonts()
   })
 
   // Apply on init
   applyDarkMode()
-  applyAccent(accent.value)
+  applyPreset()
+  applyFonts()
 
-  return { darkMode, accent, toggleDarkMode, setAccent }
+  return {
+    darkMode, darkTheme, lightTheme, accent, accentOverride,
+    fontFamily, fontSize, gridFontSize, activePreset,
+    toggleDarkMode, setAccent, setDarkTheme, setLightTheme,
+    setFontFamily, setFontSize, setGridFontSize,
+  }
 })
