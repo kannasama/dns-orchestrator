@@ -6,17 +6,17 @@
 namespace dns::api::routes {
 
 /// Handler for GET /api/v1/themes (no auth required)
-/// Reads custom theme preset JSON files from a configured directory.
+/// Reads custom theme preset JSON files from /var/lib/meridian-dns/custom_themes/.
 class ThemeRoutes {
  public:
-  explicit ThemeRoutes(const std::string& sCustomThemesDir);
+  ThemeRoutes();
   ~ThemeRoutes();
 
   /// Register theme route on the Crow app.
   void registerRoutes(crow::SimpleApp& app);
 
  private:
-  std::string _sCustomThemesDir;
+  static constexpr const char* kCustomThemesDir = "/var/lib/meridian-dns/custom_themes";
 };
 
 }  // namespace dns::api::routes

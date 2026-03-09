@@ -143,9 +143,6 @@ Config Config::load() {
   // Web UI
   cfg.sUiDir = getEnv("DNS_UI_DIR");
 
-  // Custom themes
-  cfg.sCustomThemesDir = getEnv("DNS_CUSTOM_THEMES_DIR");
-
   // Migrations
   const std::string sMigrationsDir = getEnv("DNS_MIGRATIONS_DIR");
   if (!sMigrationsDir.empty()) {

@@ -13,8 +13,7 @@ namespace fs = std::filesystem;
 
 namespace dns::api::routes {
 
-ThemeRoutes::ThemeRoutes(const std::string& sCustomThemesDir)
-    : _sCustomThemesDir(sCustomThemesDir) {}
+ThemeRoutes::ThemeRoutes() = default;
 
 ThemeRoutes::~ThemeRoutes() = default;
 
@@ -23,11 +22,11 @@ void ThemeRoutes::registerRoutes(crow::SimpleApp& app) {
       .methods(crow::HTTPMethod::GET)([this](const crow::request& /*req*/) {
         nlohmann::json jPresets = nlohmann::json::array();
 
-        if (_sCustomThemesDir.empty() || !fs::is_directory(_sCustomThemesDir)) {
+        if (!fs::is_directory(kCustomThemesDir)) {
           return jsonResponse(200, jPresets);
         }
 
-        for (const auto& entry : fs::directory_iterator(_sCustomThemesDir)) {
+        for (const auto& entry : fs::directory_iterator(kCustomThemesDir)) {
           if (!entry.is_regular_file()) continue;
           if (entry.path().extension() != ".json") continue;
 

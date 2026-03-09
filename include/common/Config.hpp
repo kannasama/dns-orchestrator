@@ -53,9 +53,6 @@ struct Config {
   // ── Web UI ───────────────────────────────────────────────────────────
   std::string sUiDir;  // path to built UI assets (empty = disabled)
 
-  // ── Custom Themes ──────────────────────────────────────────────────
-  std::string sCustomThemesDir;  // path to custom theme JSON files (empty = disabled)
-
   // ── Migrations ──────────────────────────────────────────────────────
   std::string sMigrationsDir = "/opt/meridian-dns/db";  // path to migration version directories
 
