@@ -6,6 +6,7 @@
 #include "api/AuthMiddleware.hpp"
 #include "api/RouteHelpers.hpp"
 #include "common/Errors.hpp"
+#include "common/Permissions.hpp"
 #include "core/RollbackEngine.hpp"
 #include "dal/DeploymentRepository.hpp"
 #include "dal/RecordRepository.hpp"
@@ -13,6 +14,7 @@
 #include <nlohmann/json.hpp>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 DeploymentRoutes::DeploymentRoutes(dns::dal::DeploymentRepository& drRepo,
                                    dns::dal::RecordRepository& rrRepo,
@@ -45,7 +47,7 @@ void DeploymentRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kZonesView);
 
           int iLimit = 50;
           auto sLimit = req.url_params.get("limit");
@@ -67,7 +69,7 @@ void DeploymentRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int /*iZoneId*/, int iDeployId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kZonesView);
 
           auto oRow = _drRepo.findById(iDeployId);
           if (!oRow) {
@@ -84,7 +86,7 @@ void DeploymentRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId, int iDeployId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kZonesView);
 
           auto oDeploy = _drRepo.findById(iDeployId);
           if (!oDeploy) {
@@ -157,7 +159,7 @@ void DeploymentRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId, int iDeployId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kZonesRollback);
 
           std::vector<int64_t> vCherryPickIds;
           if (!req.body.empty()) {

@@ -4,11 +4,13 @@
 #include "api/RequestValidator.hpp"
 #include "api/RouteHelpers.hpp"
 #include "common/Errors.hpp"
+#include "common/Permissions.hpp"
 #include "dal/GroupRepository.hpp"
 
 #include <nlohmann/json.hpp>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 GroupRoutes::GroupRoutes(dns::dal::GroupRepository& grRepo,
                         const dns::api::AuthMiddleware& amMiddleware)
@@ -22,7 +24,7 @@ void GroupRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kGroupsView);
 
           auto vGroups = _grRepo.listAll();
           nlohmann::json jArr = nlohmann::json::array();
@@ -49,7 +51,7 @@ void GroupRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kGroupsCreate);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -73,7 +75,7 @@ void GroupRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iGroupId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kGroupsView);
 
           auto oGroup = _grRepo.findById(iGroupId);
           if (!oGroup) throw common::NotFoundError("GROUP_NOT_FOUND", "Group not found");
@@ -105,7 +107,7 @@ void GroupRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iGroupId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kGroupsEdit);
 
           auto oGroup = _grRepo.findById(iGroupId);
           if (!oGroup) throw common::NotFoundError("GROUP_NOT_FOUND", "Group not found");
@@ -131,7 +133,7 @@ void GroupRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iGroupId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kGroupsDelete);
 
           _grRepo.deleteGroup(iGroupId);
           return jsonResponse(200, {{"message", "Group deleted"}});

@@ -7,11 +7,13 @@
 #include "api/AuthMiddleware.hpp"
 #include "api/RouteHelpers.hpp"
 #include "common/Errors.hpp"
+#include "common/Permissions.hpp"
 #include "dal/AuditRepository.hpp"
 
 #include <nlohmann/json.hpp>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 AuditRoutes::AuditRoutes(dns::dal::AuditRepository& arRepo,
                          const dns::api::AuthMiddleware& amMiddleware,
@@ -62,7 +64,7 @@ void AuditRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kAuditView);
 
           std::optional<std::string> osEntityType;
           std::optional<std::string> osIdentity;
@@ -103,7 +105,7 @@ void AuditRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kAuditExport);
 
           std::optional<std::chrono::system_clock::time_point> otpFrom;
           std::optional<std::chrono::system_clock::time_point> otpTo;
@@ -137,7 +139,7 @@ void AuditRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kAuditPurge);
 
           auto prResult = _arRepo.purgeOld(_iRetentionDays);
 

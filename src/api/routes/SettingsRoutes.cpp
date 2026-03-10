@@ -1,6 +1,7 @@
 #include "api/routes/SettingsRoutes.hpp"
 
 #include "api/RouteHelpers.hpp"
+#include "common/Permissions.hpp"
 #include "common/SettingsDef.hpp"
 #include "core/MaintenanceScheduler.hpp"
 #include "dal/SettingsRepository.hpp"
@@ -10,6 +11,7 @@
 #include <map>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 SettingsRoutes::SettingsRoutes(dns::dal::SettingsRepository& srRepo,
                                const dns::api::AuthMiddleware& amMiddleware,
@@ -25,7 +27,7 @@ void SettingsRoutes::registerRoutes(crow::SimpleApp& app) {
           [this](const crow::request& req) -> crow::response {
             try {
               auto rcCtx = authenticate(_amMiddleware, req);
-              requireRole(rcCtx, "admin");
+              requirePermission(rcCtx, Permissions::kSettingsView);
 
               auto vRows = _srRepo.listAll();
 
@@ -72,7 +74,7 @@ void SettingsRoutes::registerRoutes(crow::SimpleApp& app) {
           [this](const crow::request& req) -> crow::response {
             try {
               auto rcCtx = authenticate(_amMiddleware, req);
-              requireRole(rcCtx, "admin");
+              requirePermission(rcCtx, Permissions::kSettingsEdit);
 
               auto jBody = nlohmann::json::parse(req.body);
               if (!jBody.is_object()) {

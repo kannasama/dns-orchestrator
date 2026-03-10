@@ -4,6 +4,7 @@
 #include "api/RequestValidator.hpp"
 #include "api/RouteHelpers.hpp"
 #include "common/Errors.hpp"
+#include "common/Permissions.hpp"
 #include "common/Types.hpp"
 #include "core/DeploymentEngine.hpp"
 #include "core/DiffEngine.hpp"
@@ -14,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 RecordRoutes::RecordRoutes(dns::dal::RecordRepository& rrRepo,
                            dns::dal::ZoneRepository& zrRepo,
@@ -66,7 +68,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kRecordsView);
 
           auto vRows = _rrRepo.listByZoneId(iZoneId);
           nlohmann::json jArr = nlohmann::json::array();
@@ -84,7 +86,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kRecordsCreate);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -128,7 +130,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int /*iZoneId*/, int iRecordId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kRecordsView);
 
           auto oRow = _rrRepo.findById(iRecordId);
           if (!oRow.has_value()) {
@@ -145,7 +147,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int /*iZoneId*/, int iRecordId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kRecordsEdit);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -200,7 +202,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int /*iZoneId*/, int iRecordId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kRecordsDelete);
 
           // Capture old state for audit
           auto oOldRecord = _rrRepo.findById(iRecordId);
@@ -231,7 +233,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int /*iZoneId*/, int iRecordId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kZonesDeploy);
 
           _rrRepo.restoreById(iRecordId);
 
@@ -260,7 +262,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kZonesView);
 
           auto prResult = _deEngine.preview(iZoneId);
 
@@ -325,7 +327,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kZonesDeploy);
 
           std::vector<common::DriftAction> vDriftActions;
           if (!req.body.empty()) {
@@ -362,7 +364,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kRecordsImport);
 
           auto jBody = nlohmann::json::parse(req.body);
           if (!jBody.is_array()) {
@@ -417,7 +419,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kRecordsView);
 
           auto jBody = nlohmann::json::parse(req.body);
 
@@ -524,7 +526,7 @@ void RecordRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kVariablesView);
 
           auto vLiveRecords = _deEngine.fetchLiveRecords(iZoneId);
 

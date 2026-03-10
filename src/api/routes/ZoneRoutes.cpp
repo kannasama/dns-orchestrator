@@ -4,12 +4,14 @@
 #include "api/RequestValidator.hpp"
 #include "api/RouteHelpers.hpp"
 #include "common/Errors.hpp"
+#include "common/Permissions.hpp"
 #include "core/DiffEngine.hpp"
 #include "dal/ZoneRepository.hpp"
 
 #include <nlohmann/json.hpp>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 ZoneRoutes::ZoneRoutes(dns::dal::ZoneRepository& zrRepo,
                        const dns::api::AuthMiddleware& amMiddleware,
@@ -55,7 +57,7 @@ void ZoneRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kZonesCreate);
           auto vZones = _zrRepo.listAll();
           nlohmann::json jResults = nlohmann::json::array();
           for (const auto& zone : vZones) {
@@ -90,7 +92,7 @@ void ZoneRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iZoneId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kRecordsImport);
           auto oZone = _zrRepo.findById(iZoneId);
           if (!oZone) throw common::NotFoundError("ZONE_NOT_FOUND", "Zone not found");
           std::string sStatus = "in_sync";
@@ -125,7 +127,7 @@ void ZoneRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kZonesView);
 
           // Check for ?view_id= query parameter
           auto sViewId = req.url_params.get("view_id");
@@ -151,7 +153,7 @@ void ZoneRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kZonesEdit);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -185,7 +187,7 @@ void ZoneRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kZonesView);
 
           auto oRow = _zrRepo.findById(iId);
           if (!oRow.has_value()) {
@@ -202,7 +204,7 @@ void ZoneRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kZonesEdit);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -237,7 +239,7 @@ void ZoneRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kZonesDelete);
 
           _zrRepo.deleteById(iId);
           return jsonResponse(200, {{"message", "Zone deleted"}});

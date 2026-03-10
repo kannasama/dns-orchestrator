@@ -16,10 +16,6 @@ namespace dns::api {
 common::RequestContext authenticate(const AuthMiddleware& amMiddleware,
                                     const crow::request& req);
 
-/// Enforce minimum role. Throws AuthorizationError if insufficient.
-/// @deprecated Use requirePermission() instead.
-void requireRole(const common::RequestContext& rcCtx, const std::string& sMinRole);
-
 /// Enforce a specific permission. Throws AuthorizationError if the user
 /// does not have the required permission in their RequestContext.
 void requirePermission(const common::RequestContext& rcCtx, std::string_view svPermission);

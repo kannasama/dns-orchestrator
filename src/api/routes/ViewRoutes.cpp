@@ -3,11 +3,13 @@
 #include "api/AuthMiddleware.hpp"
 #include "api/RouteHelpers.hpp"
 #include "common/Errors.hpp"
+#include "common/Permissions.hpp"
 #include "dal/ViewRepository.hpp"
 
 #include <nlohmann/json.hpp>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 ViewRoutes::ViewRoutes(dns::dal::ViewRepository& vrRepo,
                        const dns::api::AuthMiddleware& amMiddleware)
@@ -21,7 +23,7 @@ void ViewRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kViewsView);
 
           auto vRows = _vrRepo.listAll();
           nlohmann::json jArr = nlohmann::json::array();
@@ -47,7 +49,7 @@ void ViewRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kViewsCreate);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -71,7 +73,7 @@ void ViewRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kViewsView);
 
           auto oRow = _vrRepo.findWithProviders(iId);
           if (!oRow.has_value()) {
@@ -98,7 +100,7 @@ void ViewRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kViewsEdit);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -122,7 +124,7 @@ void ViewRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kViewsDelete);
 
           _vrRepo.deleteById(iId);
           return jsonResponse(200, {{"message", "View deleted"}});
@@ -136,7 +138,7 @@ void ViewRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iViewId, int iProviderId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kViewsEdit);
 
           _vrRepo.attachProvider(iViewId, iProviderId);
           return jsonResponse(200, {{"message", "Provider attached"}});
@@ -150,7 +152,7 @@ void ViewRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iViewId, int iProviderId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kViewsEdit);
 
           _vrRepo.detachProvider(iViewId, iProviderId);
           return jsonResponse(200, {{"message", "Provider detached"}});

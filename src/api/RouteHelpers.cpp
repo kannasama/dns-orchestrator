@@ -17,16 +17,6 @@ common::RequestContext authenticate(const AuthMiddleware& amMiddleware,
                                    req.get_header_value("X-API-Key"));
 }
 
-void requireRole(const common::RequestContext& rcCtx, const std::string& sMinRole) {
-  if (sMinRole == "admin" && rcCtx.sRole != "admin") {
-    throw common::AuthorizationError("INSUFFICIENT_ROLE", "Admin role required");
-  }
-  if (sMinRole == "operator" && rcCtx.sRole == "viewer") {
-    throw common::AuthorizationError("INSUFFICIENT_ROLE",
-                                     "Operator or admin role required");
-  }
-}
-
 void requirePermission(const common::RequestContext& rcCtx, std::string_view svPermission) {
   if (rcCtx.vPermissions.count(std::string(svPermission)) == 0) {
     throw common::AuthorizationError(

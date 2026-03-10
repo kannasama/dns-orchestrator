@@ -4,6 +4,7 @@
 #include "api/RequestValidator.hpp"
 #include "api/RouteHelpers.hpp"
 #include "common/Errors.hpp"
+#include "common/Permissions.hpp"
 #include "dal/GroupRepository.hpp"
 #include "dal/UserRepository.hpp"
 #include "security/CryptoService.hpp"
@@ -11,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 UserRoutes::UserRoutes(dns::dal::UserRepository& urRepo, dns::dal::GroupRepository& grRepo,
                        const dns::api::AuthMiddleware& amMiddleware)
@@ -24,7 +26,7 @@ void UserRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kUsersView);
 
           auto vUsers = _urRepo.listAll();
           nlohmann::json jArr = nlohmann::json::array();
@@ -55,7 +57,7 @@ void UserRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kUsersCreate);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sUsername = jBody.value("username", "");
@@ -93,7 +95,7 @@ void UserRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iUserId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kUsersView);
 
           auto oUser = _urRepo.findById(iUserId);
           if (!oUser) throw common::NotFoundError("USER_NOT_FOUND", "User not found");
@@ -123,7 +125,7 @@ void UserRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iUserId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kUsersEdit);
 
           auto oUser = _urRepo.findById(iUserId);
           if (!oUser) throw common::NotFoundError("USER_NOT_FOUND", "User not found");
@@ -158,7 +160,7 @@ void UserRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iUserId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kUsersDelete);
 
           _urRepo.deactivate(iUserId);
           return jsonResponse(200, {{"message", "User deactivated"}});
@@ -172,7 +174,7 @@ void UserRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iUserId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kUsersEdit);
 
           auto oUser = _urRepo.findById(iUserId);
           if (!oUser) throw common::NotFoundError("USER_NOT_FOUND", "User not found");

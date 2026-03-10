@@ -4,6 +4,7 @@
 #include "api/RequestValidator.hpp"
 #include "api/RouteHelpers.hpp"
 #include "common/Errors.hpp"
+#include "common/Permissions.hpp"
 #include "dal/ProviderRepository.hpp"
 #include "providers/IProvider.hpp"
 #include "providers/ProviderFactory.hpp"
@@ -11,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 ProviderRoutes::ProviderRoutes(dns::dal::ProviderRepository& prRepo,
                                const dns::api::AuthMiddleware& amMiddleware)
@@ -24,7 +26,7 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kProvidersView);
 
           auto vProviders = _prRepo.listAll();
           nlohmann::json jResults = nlohmann::json::array();
@@ -72,7 +74,7 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kProvidersView);
 
           auto vRows = _prRepo.listAll();
           nlohmann::json jArr = nlohmann::json::array();
@@ -102,7 +104,7 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kProvidersCreate);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -140,7 +142,7 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kProvidersView);
 
           auto oRow = _prRepo.findById(iId);
           if (!oRow.has_value()) {
@@ -172,7 +174,7 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kProvidersEdit);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -205,7 +207,7 @@ void ProviderRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "admin");
+          requirePermission(rcCtx, Permissions::kProvidersDelete);
 
           _prRepo.deleteById(iId);
           return jsonResponse(200, {{"message", "Provider deleted"}});

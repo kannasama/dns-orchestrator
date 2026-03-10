@@ -4,11 +4,13 @@
 #include "api/RequestValidator.hpp"
 #include "api/RouteHelpers.hpp"
 #include "common/Errors.hpp"
+#include "common/Permissions.hpp"
 #include "dal/VariableRepository.hpp"
 
 #include <nlohmann/json.hpp>
 
 namespace dns::api::routes {
+using namespace dns::common;
 
 VariableRoutes::VariableRoutes(dns::dal::VariableRepository& varRepo,
                                const dns::api::AuthMiddleware& amMiddleware)
@@ -48,7 +50,7 @@ void VariableRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kVariablesView);
 
           auto sScope = req.url_params.get("scope");
           auto sZoneId = req.url_params.get("zone_id");
@@ -77,7 +79,7 @@ void VariableRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kVariablesCreate);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sName = jBody.value("name", "");
@@ -108,7 +110,7 @@ void VariableRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "viewer");
+          requirePermission(rcCtx, Permissions::kVariablesView);
 
           auto oRow = _varRepo.findById(iId);
           if (!oRow.has_value()) {
@@ -125,7 +127,7 @@ void VariableRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kVariablesEdit);
 
           auto jBody = nlohmann::json::parse(req.body);
           std::string sValue = jBody.value("value", "");
@@ -146,7 +148,7 @@ void VariableRoutes::registerRoutes(crow::SimpleApp& app) {
       [this](const crow::request& req, int iId) -> crow::response {
         try {
           auto rcCtx = authenticate(_amMiddleware, req);
-          requireRole(rcCtx, "operator");
+          requirePermission(rcCtx, Permissions::kVariablesDelete);
 
           _varRepo.deleteById(iId);
           return jsonResponse(200, {{"message", "Variable deleted"}});
