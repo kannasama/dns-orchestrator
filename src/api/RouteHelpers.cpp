@@ -27,6 +27,14 @@ void requireRole(const common::RequestContext& rcCtx, const std::string& sMinRol
   }
 }
 
+void requirePermission(const common::RequestContext& rcCtx, std::string_view svPermission) {
+  if (rcCtx.vPermissions.count(std::string(svPermission)) == 0) {
+    throw common::AuthorizationError(
+        "INSUFFICIENT_PERMISSION",
+        "Required permission: " + std::string(svPermission));
+  }
+}
+
 crow::response jsonResponse(int iStatus, const nlohmann::json& j) {
   crow::response resp(iStatus, j.dump(2));
   resp.set_header("Content-Type", "application/json");
