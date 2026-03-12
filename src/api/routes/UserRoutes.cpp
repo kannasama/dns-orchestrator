@@ -75,10 +75,14 @@ void UserRoutes::registerRoutes(crow::SimpleApp& app) {
             _urRepo.setForcePasswordChange(iUserId, true);
           }
 
-          // Add to groups if specified
-          if (jBody.contains("group_ids") && jBody["group_ids"].is_array()) {
-            for (const auto& jGid : jBody["group_ids"]) {
-              _urRepo.addToGroup(iUserId, jGid.get<int64_t>());
+          // Add to groups if specified (with role assignment)
+          if (jBody.contains("group_memberships") && jBody["group_memberships"].is_array()) {
+            for (const auto& jMember : jBody["group_memberships"]) {
+              int64_t iGid = jMember.at("group_id").get<int64_t>();
+              int64_t iRoleId = jMember.at("role_id").get<int64_t>();
+              std::string sScopeType = jMember.value("scope_type", "");
+              int64_t iScopeId = jMember.value("scope_id", 0);
+              _urRepo.addToGroup(iUserId, iGid, iRoleId, sScopeType, iScopeId);
             }
           }
 
@@ -136,14 +140,18 @@ void UserRoutes::registerRoutes(crow::SimpleApp& app) {
 
           _urRepo.update(iUserId, sEmail, bIsActive);
 
-          // Sync groups: remove all, then re-add
-          if (jBody.contains("group_ids") && jBody["group_ids"].is_array()) {
+          // Sync group memberships: remove all, then re-add
+          if (jBody.contains("group_memberships") && jBody["group_memberships"].is_array()) {
             auto vCurrentGroups = _urRepo.listGroupsForUser(iUserId);
             for (const auto& [iGid, sGname] : vCurrentGroups) {
               _urRepo.removeFromGroup(iUserId, iGid);
             }
-            for (const auto& jGid : jBody["group_ids"]) {
-              _urRepo.addToGroup(iUserId, jGid.get<int64_t>());
+            for (const auto& jMember : jBody["group_memberships"]) {
+              int64_t iGid = jMember.at("group_id").get<int64_t>();
+              int64_t iRoleId = jMember.at("role_id").get<int64_t>();
+              std::string sScopeType = jMember.value("scope_type", "");
+              int64_t iScopeId = jMember.value("scope_id", 0);
+              _urRepo.addToGroup(iUserId, iGid, iRoleId, sScopeType, iScopeId);
             }
           }
 

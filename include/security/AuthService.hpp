@@ -9,6 +9,7 @@ namespace dns::dal {
 class ConnectionPool;
 class UserRepository;
 class SessionRepository;
+class RoleRepository;
 }  // namespace dns::dal
 
 namespace dns::security {
@@ -21,6 +22,7 @@ class AuthService {
  public:
   AuthService(dal::UserRepository& urRepo,
               dal::SessionRepository& srRepo,
+              dal::RoleRepository& rrRepo,
               const IJwtSigner& jsSigner,
               int iJwtTtlSeconds,
               int iSessionAbsoluteTtlSeconds);
@@ -38,6 +40,7 @@ class AuthService {
  private:
   dal::UserRepository& _urRepo;
   dal::SessionRepository& _srRepo;
+  dal::RoleRepository& _rrRepo;
   const IJwtSigner& _jsSigner;
   int _iJwtTtlSeconds;
   int _iSessionAbsoluteTtlSeconds;

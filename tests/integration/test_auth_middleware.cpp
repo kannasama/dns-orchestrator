@@ -50,7 +50,7 @@ class AuthMiddlewareTest : public ::testing::Test {
     _akrRepo = std::make_unique<ApiKeyRepository>(*_cpPool);
     _rrRepo = std::make_unique<RoleRepository>(*_cpPool);
     _jsSigner = std::make_unique<HmacJwtSigner>("test-jwt-secret");
-    _asService = std::make_unique<AuthService>(*_urRepo, *_srRepo, *_jsSigner, 3600, 86400);
+    _asService = std::make_unique<AuthService>(*_urRepo, *_srRepo, *_rrRepo, *_jsSigner, 3600, 86400);
     _amMiddleware = std::make_unique<AuthMiddleware>(*_jsSigner, *_srRepo, *_akrRepo, *_urRepo, *_rrRepo, 3600, 300);
 
     // Clean test data and create test user
@@ -71,9 +71,12 @@ class AuthMiddlewareTest : public ::testing::Test {
     _iTestUserId = r.one_row()[0].as<int64_t>();
 
     auto rGroup = txn.exec(
-        "INSERT INTO groups (name, role) VALUES ('admins', 'admin') RETURNING id").one_row();
-    txn.exec("INSERT INTO group_members (user_id, group_id) VALUES ($1, $2)",
-             pqxx::params{_iTestUserId, rGroup[0].as<int64_t>()});
+        "INSERT INTO groups (name) VALUES ('admins') RETURNING id").one_row();
+    int64_t iGroupId = rGroup[0].as<int64_t>();
+    auto rRole = txn.exec("SELECT id FROM roles WHERE name = 'Admin'").one_row();
+    int64_t iRoleId = rRole[0].as<int64_t>();
+    txn.exec("INSERT INTO group_members (user_id, group_id, role_id) VALUES ($1, $2, $3)",
+             pqxx::params{_iTestUserId, iGroupId, iRoleId});
     txn.commit();
   }
 
@@ -94,7 +97,7 @@ TEST_F(AuthMiddlewareTest, BearerTokenReturnsRequestContext) {
 
   auto rcCtx = _amMiddleware->authenticate("Bearer " + sToken, "");
   EXPECT_EQ(rcCtx.sUsername, "alice");
-  EXPECT_EQ(rcCtx.sRole, "admin");
+  EXPECT_EQ(rcCtx.sRole, "Admin");
   EXPECT_EQ(rcCtx.sAuthMethod, "local");
 }
 
@@ -106,7 +109,7 @@ TEST_F(AuthMiddlewareTest, ApiKeyReturnsRequestContext) {
 
   auto rcCtx = _amMiddleware->authenticate("", sRawKey);
   EXPECT_EQ(rcCtx.sUsername, "alice");
-  EXPECT_EQ(rcCtx.sRole, "admin");
+  EXPECT_EQ(rcCtx.sRole, "Admin");
   EXPECT_EQ(rcCtx.sAuthMethod, "api_key");
 }
 

@@ -1,6 +1,7 @@
 #include "security/AuthService.hpp"
 
 #include "common/Errors.hpp"
+#include "dal/RoleRepository.hpp"
 #include "dal/SessionRepository.hpp"
 #include "dal/UserRepository.hpp"
 #include "security/CryptoService.hpp"
@@ -14,11 +15,13 @@ namespace dns::security {
 
 AuthService::AuthService(dal::UserRepository& urRepo,
                          dal::SessionRepository& srRepo,
+                         dal::RoleRepository& rrRepo,
                          const IJwtSigner& jsSigner,
                          int iJwtTtlSeconds,
                          int iSessionAbsoluteTtlSeconds)
     : _urRepo(urRepo),
       _srRepo(srRepo),
+      _rrRepo(rrRepo),
       _jsSigner(jsSigner),
       _iJwtTtlSeconds(iJwtTtlSeconds),
       _iSessionAbsoluteTtlSeconds(iSessionAbsoluteTtlSeconds) {}
@@ -43,10 +46,10 @@ std::string AuthService::authenticateLocal(const std::string& sUsername,
     throw common::AuthenticationError("invalid_credentials", "Invalid username or password");
   }
 
-  // Resolve role
-  std::string sRole = _urRepo.getHighestRole(oUser->iId);
+  // Resolve role name for JWT (display only — permissions resolved per-request)
+  std::string sRole = _rrRepo.getHighestRoleName(oUser->iId);
   if (sRole.empty()) {
-    sRole = "viewer";  // default role if no group membership
+    sRole = "Viewer";  // default display role if no group membership
   }
 
   // Build JWT payload

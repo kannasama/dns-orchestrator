@@ -114,14 +114,16 @@ void SetupRoutes::registerRoutes(crow::SimpleApp& app) {
 
           // 4e. Create Admins group
           auto rGroup = txn.exec(
-              "INSERT INTO groups (name, role, description) "
-              "VALUES ('Admins', 'admin', 'System administrators') RETURNING id");
+              "INSERT INTO groups (name, description) "
+              "VALUES ('Admins', 'System administrators') RETURNING id");
           int64_t iGroupId = rGroup[0][0].as<int64_t>();
 
-          // 4f. Add user to group
+          // 4f. Add user to group with Admin role
+          auto rRole = txn.exec("SELECT id FROM roles WHERE name = 'Admin'");
+          int64_t iRoleId = rRole[0][0].as<int64_t>();
           txn.exec(
-              "INSERT INTO group_members (user_id, group_id) VALUES ($1, $2)",
-              pqxx::params{iUserId, iGroupId});
+              "INSERT INTO group_members (user_id, group_id, role_id) VALUES ($1, $2, $3)",
+              pqxx::params{iUserId, iGroupId, iRoleId});
 
           // 4g. Mark setup complete
           txn.exec(

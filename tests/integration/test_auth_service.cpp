@@ -4,6 +4,7 @@
 #include "common/Logger.hpp"
 #include "dal/ConnectionPool.hpp"
 #include "dal/SessionRepository.hpp"
+#include "dal/RoleRepository.hpp"
 #include "dal/UserRepository.hpp"
 #include "security/CryptoService.hpp"
 #include "security/HmacJwtSigner.hpp"
@@ -15,6 +16,7 @@
 
 using dns::common::AuthenticationError;
 using dns::dal::ConnectionPool;
+using dns::dal::RoleRepository;
 using dns::dal::SessionRepository;
 using dns::dal::UserRepository;
 using dns::security::AuthService;
@@ -41,8 +43,9 @@ class AuthServiceTest : public ::testing::Test {
     _cpPool = std::make_unique<ConnectionPool>(_sDbUrl, 2);
     _urRepo = std::make_unique<UserRepository>(*_cpPool);
     _srRepo = std::make_unique<SessionRepository>(*_cpPool);
+    _rrRepo = std::make_unique<RoleRepository>(*_cpPool);
     _jsSigner = std::make_unique<HmacJwtSigner>("test-jwt-secret-key");
-    _asService = std::make_unique<AuthService>(*_urRepo, *_srRepo, *_jsSigner, 3600, 86400);
+    _asService = std::make_unique<AuthService>(*_urRepo, *_srRepo, *_rrRepo, *_jsSigner, 3600, 86400);
 
     // Clean test data
     auto cg = _cpPool->checkout();
@@ -64,9 +67,14 @@ class AuthServiceTest : public ::testing::Test {
 
     // Create group and membership for role resolution
     auto rGroup = txn.exec(
-        "INSERT INTO groups (name, role) VALUES ('operators', 'operator') RETURNING id").one_row();
-    txn.exec("INSERT INTO group_members (user_id, group_id) VALUES ($1, $2)",
-             pqxx::params{_iTestUserId, rGroup[0].as<int64_t>()});
+        "INSERT INTO groups (name) VALUES ('operators') RETURNING id").one_row();
+    int64_t iGroupId = rGroup[0].as<int64_t>();
+    // Look up the Operator system role
+    auto rRole = txn.exec(
+        "SELECT id FROM roles WHERE name = 'Operator'").one_row();
+    int64_t iRoleId = rRole[0].as<int64_t>();
+    txn.exec("INSERT INTO group_members (user_id, group_id, role_id) VALUES ($1, $2, $3)",
+             pqxx::params{_iTestUserId, iGroupId, iRoleId});
     txn.commit();
   }
 
@@ -74,6 +82,7 @@ class AuthServiceTest : public ::testing::Test {
   std::unique_ptr<ConnectionPool> _cpPool;
   std::unique_ptr<UserRepository> _urRepo;
   std::unique_ptr<SessionRepository> _srRepo;
+  std::unique_ptr<RoleRepository> _rrRepo;
   std::unique_ptr<HmacJwtSigner> _jsSigner;
   std::unique_ptr<AuthService> _asService;
   int64_t _iTestUserId = 0;
@@ -118,7 +127,7 @@ TEST_F(AuthServiceTest, ValidateTokenReturnsRequestContext) {
   auto rcCtx = _asService->validateToken(sToken);
   EXPECT_EQ(rcCtx.iUserId, _iTestUserId);
   EXPECT_EQ(rcCtx.sUsername, "alice");
-  EXPECT_EQ(rcCtx.sRole, "operator");
+  EXPECT_EQ(rcCtx.sRole, "Operator");
   EXPECT_EQ(rcCtx.sAuthMethod, "local");
 }
 

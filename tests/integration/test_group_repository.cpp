@@ -45,16 +45,15 @@ class GroupRepositoryTest : public ::testing::Test {
 };
 
 TEST_F(GroupRepositoryTest, CreateAndFindById) {
-  auto iId = _grRepo->create("test-admins", "admin", "Test admin group");
+  auto iId = _grRepo->create("test-admins", "Test admin group");
   auto oGroup = _grRepo->findById(iId);
   ASSERT_TRUE(oGroup.has_value());
   EXPECT_EQ(oGroup->sName, "test-admins");
-  EXPECT_EQ(oGroup->sRole, "admin");
   EXPECT_EQ(oGroup->sDescription, "Test admin group");
 }
 
 TEST_F(GroupRepositoryTest, ListAllWithMemberCount) {
-  _grRepo->create("test-ops", "operator", "");
+  _grRepo->create("test-ops", "");
   auto vGroups = _grRepo->listAll();
   EXPECT_GE(vGroups.size(), 1u);
   auto it = std::find_if(vGroups.begin(), vGroups.end(),
@@ -64,15 +63,15 @@ TEST_F(GroupRepositoryTest, ListAllWithMemberCount) {
 }
 
 TEST_F(GroupRepositoryTest, UpdateGroup) {
-  auto iId = _grRepo->create("test-old", "viewer", "old desc");
-  _grRepo->update(iId, "test-new", "operator", "new desc");
+  auto iId = _grRepo->create("test-old", "old desc");
+  _grRepo->update(iId, "test-new", "new desc");
   auto oGroup = _grRepo->findById(iId);
   EXPECT_EQ(oGroup->sName, "test-new");
-  EXPECT_EQ(oGroup->sRole, "operator");
+  EXPECT_EQ(oGroup->sDescription, "new desc");
 }
 
 TEST_F(GroupRepositoryTest, DeleteGroup) {
-  auto iId = _grRepo->create("test-delete", "viewer", "");
+  auto iId = _grRepo->create("test-delete", "");
   _grRepo->deleteGroup(iId);
   auto oGroup = _grRepo->findById(iId);
   EXPECT_FALSE(oGroup.has_value());

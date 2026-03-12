@@ -402,7 +402,7 @@ int main(int argc, char* argv[]) {
         cfgApp.iJwtTtlSeconds, cfgApp.iApiKeyCleanupGraceSeconds);
 
     auto asService = std::make_unique<dns::security::AuthService>(
-        *urRepo, *srRepo, *upSigner,
+        *urRepo, *srRepo, *roleRepo, *upSigner,
         cfgApp.iJwtTtlSeconds, cfgApp.iSessionAbsoluteTtlSeconds);
 
     auto authRoutes = std::make_unique<dns::api::routes::AuthRoutes>(*asService, *amMiddleware, *urRepo);

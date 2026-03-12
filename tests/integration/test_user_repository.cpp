@@ -76,30 +76,6 @@ TEST_F(UserRepositoryTest, FindByIdWorks) {
   EXPECT_EQ(oUser->sUsername, "bob");
 }
 
-TEST_F(UserRepositoryTest, GetHighestRoleReturnsAdminOverOperator) {
-  int64_t iUserId = _urRepo->create("carol", "carol@example.com", "hash");
-
-  // Create groups and memberships
-  auto cg = _cpPool->checkout();
-  pqxx::work txn(*cg);
-  auto rOp = txn.exec("INSERT INTO groups (name, role) VALUES ('operators', 'operator') RETURNING id").one_row();
-  auto rAdmin = txn.exec("INSERT INTO groups (name, role) VALUES ('admins', 'admin') RETURNING id").one_row();
-  txn.exec("INSERT INTO group_members (user_id, group_id) VALUES ($1, $2)",
-           pqxx::params{iUserId, rOp[0].as<int64_t>()});
-  txn.exec("INSERT INTO group_members (user_id, group_id) VALUES ($1, $2)",
-           pqxx::params{iUserId, rAdmin[0].as<int64_t>()});
-  txn.commit();
-
-  std::string sRole = _urRepo->getHighestRole(iUserId);
-  EXPECT_EQ(sRole, "admin");
-}
-
-TEST_F(UserRepositoryTest, GetHighestRoleReturnsEmptyForNoGroups) {
-  int64_t iUserId = _urRepo->create("dave", "dave@example.com", "hash");
-  std::string sRole = _urRepo->getHighestRole(iUserId);
-  EXPECT_TRUE(sRole.empty());
-}
-
 TEST_F(UserRepositoryTest, ListAllReturnsAllUsers) {
   _urRepo->create("alice", "alice@example.com", "hash1");
   _urRepo->create("bob", "bob@example.com", "hash2");
@@ -159,17 +135,19 @@ TEST_F(UserRepositoryTest, SetForcePasswordChange) {
 TEST_F(UserRepositoryTest, AddRemoveGroupAndListGroups) {
   int64_t iUserId = _urRepo->create("ivan", "ivan@example.com", "hash");
 
-  // Create groups
+  // Create groups and get a role ID
   auto cg = _cpPool->checkout();
   pqxx::work txn(*cg);
-  auto r1 = txn.exec("INSERT INTO groups (name, role) VALUES ('grp-a', 'admin') RETURNING id");
-  auto r2 = txn.exec("INSERT INTO groups (name, role) VALUES ('grp-b', 'viewer') RETURNING id");
+  auto r1 = txn.exec("INSERT INTO groups (name) VALUES ('grp-a') RETURNING id");
+  auto r2 = txn.exec("INSERT INTO groups (name) VALUES ('grp-b') RETURNING id");
   int64_t iGrpA = r1.one_row()[0].as<int64_t>();
   int64_t iGrpB = r2.one_row()[0].as<int64_t>();
+  auto rRole = txn.exec("SELECT id FROM roles WHERE name = 'Viewer'").one_row();
+  int64_t iRoleId = rRole[0].as<int64_t>();
   txn.commit();
 
-  _urRepo->addToGroup(iUserId, iGrpA);
-  _urRepo->addToGroup(iUserId, iGrpB);
+  _urRepo->addToGroup(iUserId, iGrpA, iRoleId);
+  _urRepo->addToGroup(iUserId, iGrpB, iRoleId);
 
   auto vGroups = _urRepo->listGroupsForUser(iUserId);
   ASSERT_EQ(vGroups.size(), 2u);

@@ -70,29 +70,6 @@ int64_t UserRepository::create(const std::string& sUsername, const std::string& 
   return result.one_row()[0].as<int64_t>();
 }
 
-std::string UserRepository::getHighestRole(int64_t iUserId) {
-  auto cg = _cpPool.checkout();
-  pqxx::work txn(*cg);
-
-  // Role priority: admin > operator > viewer
-  // Use CASE to assign numeric priority, take the max
-  auto result = txn.exec(
-      "SELECT g.role::text FROM groups g "
-      "JOIN group_members gm ON gm.group_id = g.id "
-      "WHERE gm.user_id = $1 "
-      "ORDER BY CASE g.role::text "
-      "  WHEN 'admin' THEN 3 "
-      "  WHEN 'operator' THEN 2 "
-      "  WHEN 'viewer' THEN 1 "
-      "END DESC "
-      "LIMIT 1",
-      pqxx::params{iUserId});
-  txn.commit();
-
-  if (result.empty()) return "";
-  return result[0][0].as<std::string>();
-}
-
 std::vector<UserRow> UserRepository::listAll() {
   auto cg = _cpPool.checkout();
   pqxx::work txn(*cg);
@@ -175,19 +152,27 @@ void UserRepository::setForcePasswordChange(int64_t iUserId, bool bForce) {
   }
 }
 
-void UserRepository::addToGroup(int64_t iUserId, int64_t iGroupId) {
+void UserRepository::addToGroup(int64_t iUserId, int64_t iGroupId, int64_t iRoleId,
+                                const std::string& sScopeType, int64_t iScopeId) {
   auto cg = _cpPool.checkout();
   pqxx::work txn(*cg);
 
   try {
-    txn.exec(
-        "INSERT INTO group_members (user_id, group_id) VALUES ($1, $2) "
-        "ON CONFLICT DO NOTHING",
-        pqxx::params{iUserId, iGroupId});
+    if (sScopeType.empty()) {
+      txn.exec(
+          "INSERT INTO group_members (user_id, group_id, role_id) VALUES ($1, $2, $3) "
+          "ON CONFLICT DO NOTHING",
+          pqxx::params{iUserId, iGroupId, iRoleId});
+    } else {
+      txn.exec(
+          "INSERT INTO group_members (user_id, group_id, role_id, scope_type, scope_id) "
+          "VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+          pqxx::params{iUserId, iGroupId, iRoleId, sScopeType, iScopeId});
+    }
     txn.commit();
   } catch (const pqxx::foreign_key_violation&) {
     throw common::NotFoundError("INVALID_USER_OR_GROUP",
-                                "User or group does not exist");
+                                "User, group, or role does not exist");
   }
 }
 

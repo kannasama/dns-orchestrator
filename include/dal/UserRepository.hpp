@@ -38,11 +38,6 @@ class UserRepository {
   int64_t create(const std::string& sUsername, const std::string& sEmail,
                  const std::string& sPasswordHash);
 
-  /// Resolve the highest-privilege role for a user across all their groups.
-  /// Returns "admin", "operator", or "viewer". Returns empty string if user
-  /// has no group membership.
-  std::string getHighestRole(int64_t iUserId);
-
   /// List all users.
   std::vector<UserRow> listAll();
 
@@ -58,10 +53,12 @@ class UserRepository {
   /// Set the force_password_change flag for a user.
   void setForcePasswordChange(int64_t iUserId, bool bForce);
 
-  /// Add a user to a group.
-  void addToGroup(int64_t iUserId, int64_t iGroupId);
+  /// Add a user to a group with a specific role (and optional scope).
+  void addToGroup(int64_t iUserId, int64_t iGroupId, int64_t iRoleId,
+                  const std::string& sScopeType = "",
+                  int64_t iScopeId = 0);
 
-  /// Remove a user from a group.
+  /// Remove a user from a group (removes all role/scope memberships).
   void removeFromGroup(int64_t iUserId, int64_t iGroupId);
 
   /// List groups for a user as (group_id, group_name) pairs.
