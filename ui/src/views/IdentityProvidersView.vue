@@ -10,14 +10,14 @@ import Select from 'primevue/select'
 import InputSwitch from 'primevue/toggleswitch'
 import Tag from 'primevue/tag'
 import PageHeader from '../components/shared/PageHeader.vue'
-import { useConfirm } from '../composables/useConfirm'
+import { useConfirmAction } from '../composables/useConfirm'
 import { useNotificationStore } from '../stores/notification'
 import type { IdentityProvider, GroupMappingRule } from '../types'
 import * as idpApi from '../api/identityProviders'
 import { listGroups } from '../api/groups'
 
 const notify = useNotificationStore()
-const { confirmDelete } = useConfirm()
+const { confirmDelete } = useConfirmAction()
 
 const items = ref<IdentityProvider[]>([])
 const loading = ref(false)
