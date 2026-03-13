@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -79,7 +79,7 @@ async function handleSubmit() {
       await roleApi.setRolePermissions(editingId.value, selectedPermissions.value)
       notify.success('Role updated')
     } else {
-      const result = await roleApi.createRole({
+      await roleApi.createRole({
         name: form.value.name,
         description: form.value.description,
         permissions: selectedPermissions.value,
@@ -121,13 +121,9 @@ function isCategoryAllSelected(cat: PermissionCategory): boolean {
   return cat.permissions.every(p => selectedPermissions.value.includes(p))
 }
 
-function isCategorySomeSelected(cat: PermissionCategory): boolean {
-  return cat.permissions.some(p => selectedPermissions.value.includes(p)) && !isCategoryAllSelected(cat)
-}
-
 function permLabel(perm: string): string {
-  const parts = perm.split('.')
-  return parts.length > 1 ? parts[1] : perm
+  const dot = perm.indexOf('.')
+  return dot >= 0 ? perm.substring(dot + 1) : perm
 }
 
 function permCount(role: Role): number {
