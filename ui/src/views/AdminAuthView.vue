@@ -49,7 +49,8 @@ watch(() => route.query.tab, syncTabFromRoute)
 
 function onTabChange(e: { index: number }) {
   activeTab.value = e.index
-  router.replace({ query: { tab: tabs[e.index].key } })
+  const tab = tabs[e.index]
+  if (tab) router.replace({ query: { tab: tab.key } })
 }
 
 // ─── Users ───
