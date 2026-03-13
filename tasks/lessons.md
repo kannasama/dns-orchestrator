@@ -107,3 +107,19 @@ same command the CI/Docker build uses) rather than `vue-tsc --noEmit`. Check the
 
 **Verification step:** Before committing Vue/TS changes, run the exact build command from
 `package.json` (`npm run build` or `vue-tsc -b && vite build`) to catch strictness differences.
+
+## 2026-03-13 — Never use `git commit --amend` after pushing
+
+**Mistake:** After pushing a commit, used `git commit --amend` to fix a TS error instead of
+making a new fix commit. This rewrote the already-pushed commit hash, causing local/remote
+divergence that required a rebase with merge conflicts to resolve — turning a simple one-line
+fix into a multi-step conflict resolution exercise.
+
+**Pattern:** `--amend` rewrites history. Once a commit is pushed, its hash is shared state.
+Amending it creates a new hash locally while the old one exists on the remote, guaranteeing
+divergence.
+
+**Rule:** Never use `git commit --amend` on commits that have already been pushed. Always create
+a new commit for fixes. A clean `git push` is worth more than a pretty `git log`.
+
+**Applied:** All post-push fixes. Use a new commit (`fix: ...`) instead of amending.
