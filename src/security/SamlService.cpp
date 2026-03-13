@@ -236,8 +236,23 @@ void SamlService::evictExpiredStates() {
 std::string SamlService::extractElement(const std::string& sXml, const std::string& sTag) {
   // Find opening tag (may have attributes)
   std::string sOpenPrefix = "<" + sTag;
-  auto iStart = sXml.find(sOpenPrefix);
-  if (iStart == std::string::npos) return "";
+  size_t iSearchFrom = 0;
+  size_t iStart = std::string::npos;
+  while (true) {
+    iStart = sXml.find(sOpenPrefix, iSearchFrom);
+    if (iStart == std::string::npos) return "";
+    // Ensure we matched the exact tag, not a prefix (e.g. "saml:Audience" vs "saml:AudienceRestriction")
+    auto iAfterTag = iStart + sOpenPrefix.size();
+    if (iAfterTag < sXml.size()) {
+      char cNext = sXml[iAfterTag];
+      if (cNext == '>' || cNext == ' ' || cNext == '/' || cNext == '\t' || cNext == '\n' || cNext == '\r') {
+        break;  // Exact match
+      }
+    } else {
+      return "";  // Tag at end of string, malformed
+    }
+    iSearchFrom = iStart + 1;
+  }
 
   // Find end of opening tag
   auto iTagEnd = sXml.find('>', iStart);

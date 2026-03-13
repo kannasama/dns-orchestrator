@@ -38,8 +38,14 @@ const computedBaseUrl = computed(() => {
   return `${window.location.protocol}//${window.location.host}`
 })
 
-const oidcRedirectUri = computed(() => `${computedBaseUrl.value}/auth/callback`)
-const samlAcsUrl = computed(() => `${computedBaseUrl.value}/auth/saml/acs`)
+function oidcRedirectUri(idpId?: number) {
+  if (idpId) return `${computedBaseUrl.value}/api/v1/auth/oidc/${idpId}/callback`
+  return `${computedBaseUrl.value}/api/v1/auth/oidc/{id}/callback`
+}
+function samlAcsUrl(idpId?: number) {
+  if (idpId) return `${computedBaseUrl.value}/api/v1/auth/saml/${idpId}/acs`
+  return `${computedBaseUrl.value}/api/v1/auth/saml/{id}/acs`
+}
 
 // Form state
 const form = ref({
@@ -153,7 +159,7 @@ function buildConfig() {
     return {
       issuer_url: form.value.issuer_url,
       client_id: form.value.client_id,
-      redirect_uri: oidcRedirectUri.value,
+      redirect_uri: oidcRedirectUri(form.value.id),
       scopes: form.value.scopes.split(/\s+/).filter(Boolean),
       groups_claim: form.value.groups_claim,
     }
@@ -162,7 +168,7 @@ function buildConfig() {
     entity_id: form.value.entity_id,
     sso_url: form.value.sso_url,
     certificate: form.value.certificate,
-    assertion_consumer_service_url: samlAcsUrl.value,
+    assertion_consumer_service_url: samlAcsUrl(form.value.id),
     name_id_format: form.value.name_id_format,
     group_attribute: form.value.group_attribute,
   }
@@ -276,7 +282,7 @@ function copyToClipboard(text: string) {
       </Column>
       <Column header="Callback URL">
         <template #body="{ data }">
-          <code class="callback-url">{{ data.type === 'oidc' ? oidcRedirectUri : samlAcsUrl }}</code>
+          <code class="callback-url">{{ data.type === 'oidc' ? oidcRedirectUri(data.id) : samlAcsUrl(data.id) }}</code>
         </template>
       </Column>
       <Column header="Actions" style="width: 12rem">
@@ -350,14 +356,14 @@ function copyToClipboard(text: string) {
           <div class="callback-display">
             <label>Redirect URI</label>
             <div class="callback-value">
-              <code>{{ oidcRedirectUri }}</code>
+              <code>{{ oidcRedirectUri(form.id) }}</code>
               <Button
                 icon="pi pi-copy"
                 text
                 rounded
                 size="small"
                 v-tooltip="'Copy'"
-                @click="copyToClipboard(oidcRedirectUri)"
+                @click="copyToClipboard(oidcRedirectUri(form.id))"
               />
             </div>
             <small class="callback-hint">
@@ -402,14 +408,14 @@ function copyToClipboard(text: string) {
           <div class="callback-display">
             <label>Assertion Consumer Service (ACS) URL</label>
             <div class="callback-value">
-              <code>{{ samlAcsUrl }}</code>
+              <code>{{ samlAcsUrl(form.id) }}</code>
               <Button
                 icon="pi pi-copy"
                 text
                 rounded
                 size="small"
                 v-tooltip="'Copy'"
-                @click="copyToClipboard(samlAcsUrl)"
+                @click="copyToClipboard(samlAcsUrl(form.id))"
               />
             </div>
             <small class="callback-hint">

@@ -204,7 +204,7 @@ void SamlRoutes::registerRoutes(crow::SimpleApp& app) {
           std::string sHtml =
               "<!DOCTYPE html><html><head><title>Signing in...</title></head>"
               "<body><p>Signing in...</p>"
-              "<script>window.location.replace('/#/auth/callback?token=" +
+              "<script>window.location.replace('/auth/callback?token=" +
               lr.sToken + "');</script>"
               "</body></html>";
           crow::response resp(200);
@@ -217,7 +217,7 @@ void SamlRoutes::registerRoutes(crow::SimpleApp& app) {
           std::string sHtml =
               "<!DOCTYPE html><html><head><title>Authentication Error</title></head>"
               "<body><p>Authentication failed.</p>"
-              "<script>window.location.replace('/#/login?error=auth_failed');</script>"
+              "<script>window.location.replace('/login?error=auth_failed');</script>"
               "</body></html>";
           crow::response resp(200);
           resp.set_header("Content-Type", "text/html");

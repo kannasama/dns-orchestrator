@@ -181,13 +181,13 @@ void OidcRoutes::registerRoutes(crow::SimpleApp& app) {
 
           // Redirect to SPA with token
           crow::response resp(302);
-          resp.set_header("Location", "/#/auth/callback?token=" + lr.sToken);
+          resp.set_header("Location", "/auth/callback?token=" + lr.sToken);
           return resp;
         } catch (const common::AppError& e) {
           spdlog::error("OIDC callback error: {}", e.what());
           // Redirect to login with error
           crow::response resp(302);
-          resp.set_header("Location", "/#/login?error=auth_failed");
+          resp.set_header("Location", "/login?error=auth_failed");
           return resp;
         }
       });
