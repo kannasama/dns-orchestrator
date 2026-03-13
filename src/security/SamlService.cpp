@@ -3,6 +3,8 @@
 #include "common/Errors.hpp"
 #include "security/SamlReplayCache.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/rand.h>
@@ -283,6 +285,34 @@ std::string SamlService::extractAttribute(const std::string& sXml, const std::st
   return sXml.substr(iValueStart, iEnd - iValueStart);
 }
 
+/// Detect the namespace prefix used for SAML assertion elements.
+/// Tries "saml:", "saml2:", and no prefix. Returns the prefix string (e.g. "saml:", "saml2:", "").
+std::string detectAssertionPrefix(const std::string& sXml) {
+  for (const auto& sPrefix : {"saml:", "saml2:", ""}) {
+    std::string sSearch = std::string("<") + sPrefix + "Assertion";
+    auto iPos = sXml.find(sSearch);
+    if (iPos != std::string::npos) {
+      // Verify exact tag match (not a prefix of a longer tag name)
+      auto iAfter = iPos + sSearch.size();
+      if (iAfter < sXml.size()) {
+        char c = sXml[iAfter];
+        if (c == '>' || c == ' ' || c == '/' || c == '\t' || c == '\n' || c == '\r') {
+          return sPrefix;
+        }
+      }
+    }
+  }
+  return "saml:";  // fallback
+}
+
+/// Find the closing tag for an element, trying multiple namespace prefixes.
+/// Returns the position after the closing tag, or npos if not found.
+size_t findClosingTag(const std::string& sXml, const std::string& sLocalName,
+                      const std::string& sPrefix, size_t iFrom) {
+  std::string sClose = "</" + sPrefix + sLocalName + ">";
+  return sXml.find(sClose, iFrom);
+}
+
 std::vector<std::string> SamlService::extractAttributeValues(const std::string& sXml,
                                                              const std::string& sAttrName) {
   std::vector<std::string> vValues;
@@ -292,25 +322,53 @@ std::vector<std::string> SamlService::extractAttributeValues(const std::string& 
   auto iAttrStart = sXml.find(sSearch);
   if (iAttrStart == std::string::npos) return vValues;
 
-  // Find the end of this Attribute element
-  std::string sCloseTag = "</saml:Attribute>";
+  // Detect prefix used in this context
+  std::string sPrefix = detectAssertionPrefix(sXml);
+
+  // Find the end of this Attribute element (try detected prefix, then alternatives)
+  std::string sCloseTag = "</" + sPrefix + "Attribute>";
   auto iAttrEnd = sXml.find(sCloseTag, iAttrStart);
-  if (iAttrEnd == std::string::npos) return vValues;
+  if (iAttrEnd == std::string::npos) {
+    // Try without prefix
+    iAttrEnd = sXml.find("</Attribute>", iAttrStart);
+    if (iAttrEnd == std::string::npos) return vValues;
+  }
 
   std::string sAttrBlock = sXml.substr(iAttrStart, iAttrEnd - iAttrStart);
 
-  // Extract all AttributeValue elements
-  std::string sValueTag = "<saml:AttributeValue>";
-  std::string sValueClose = "</saml:AttributeValue>";
+  // Extract all AttributeValue elements — try with prefix first, then without
+  // Also handle AttributeValue tags that may have attributes (e.g. xsi:type)
   size_t iPos = 0;
   while (true) {
-    auto iValStart = sAttrBlock.find(sValueTag, iPos);
-    if (iValStart == std::string::npos) break;
-    iValStart += sValueTag.size();
-    auto iValEnd = sAttrBlock.find(sValueClose, iValStart);
+    // Find opening AttributeValue tag with any prefix
+    size_t iValTagStart = std::string::npos;
+    for (const auto& p : {sPrefix, std::string("")}) {
+      std::string sTag = "<" + p + "AttributeValue";
+      auto iFound = sAttrBlock.find(sTag, iPos);
+      if (iFound != std::string::npos && (iValTagStart == std::string::npos || iFound < iValTagStart)) {
+        iValTagStart = iFound;
+      }
+    }
+    if (iValTagStart == std::string::npos) break;
+
+    // Find end of opening tag (may have attributes like xsi:type)
+    auto iValContentStart = sAttrBlock.find('>', iValTagStart);
+    if (iValContentStart == std::string::npos) break;
+    iValContentStart += 1;
+
+    // Find closing tag
+    size_t iValEnd = std::string::npos;
+    for (const auto& p : {sPrefix, std::string("")}) {
+      std::string sClose = "</" + p + "AttributeValue>";
+      auto iFound = sAttrBlock.find(sClose, iValContentStart);
+      if (iFound != std::string::npos && (iValEnd == std::string::npos || iFound < iValEnd)) {
+        iValEnd = iFound;
+      }
+    }
     if (iValEnd == std::string::npos) break;
-    vValues.push_back(sAttrBlock.substr(iValStart, iValEnd - iValStart));
-    iPos = iValEnd + sValueClose.size();
+
+    vValues.push_back(sAttrBlock.substr(iValContentStart, iValEnd - iValContentStart));
+    iPos = iValEnd + 1;
   }
 
   return vValues;
@@ -323,33 +381,41 @@ nlohmann::json SamlService::validateAssertion(const std::string& sSamlResponse,
   // 1. Base64-decode the SAMLResponse
   std::string sXml = base64DecodeStr(sSamlResponse);
 
-  // 2. Check status
+  // Detect the namespace prefix used for SAML assertion elements
+  std::string sP = detectAssertionPrefix(sXml);
+  spdlog::debug("SAML assertion namespace prefix: '{}'", sP);
+
+  // 2. Check status — the StatusCode Value attribute contains "Success"
   std::string sStatusCode = extractAttribute(sXml, "Value");
   if (sStatusCode.find("Success") == std::string::npos) {
     throw common::AuthenticationError("saml_status_failed",
                                       "SAML response status is not Success: " + sStatusCode);
   }
 
-  // 3. Extract assertion
-  std::string sAssertion = extractElement(sXml, "saml:Assertion");
+  // 3. Extract assertion (try detected prefix)
+  std::string sAssertion = extractElement(sXml, sP + "Assertion");
   if (sAssertion.empty()) {
+    spdlog::error("No assertion found with prefix '{}'. XML snippet (first 500 chars): {}",
+                  sP, sXml.substr(0, 500));
     throw common::AuthenticationError("saml_no_assertion", "No assertion found in SAML response");
   }
 
   // 4. Extract assertion ID for replay check
   // Find the Assertion element to get its ID attribute
-  auto iAssertionStart = sXml.find("<saml:Assertion");
+  auto iAssertionStart = sXml.find("<" + sP + "Assertion");
   std::string sAssertionTag = sXml.substr(iAssertionStart,
                                           sXml.find('>', iAssertionStart) - iAssertionStart + 1);
   std::string sAssertionId = extractAttribute(sAssertionTag, "ID");
 
   // 5. Validate conditions
   std::string sConditions;
-  auto iCondStart = sAssertion.find("<saml:Conditions");
+  std::string sCondTag = sP + "Conditions";
+  auto iCondStart = sAssertion.find("<" + sCondTag);
   if (iCondStart != std::string::npos) {
-    auto iCondEnd = sAssertion.find("</saml:Conditions>", iCondStart);
+    std::string sCondClose = "</" + sCondTag + ">";
+    auto iCondEnd = sAssertion.find(sCondClose, iCondStart);
     if (iCondEnd != std::string::npos) {
-      sConditions = sAssertion.substr(iCondStart, iCondEnd - iCondStart + 19);
+      sConditions = sAssertion.substr(iCondStart, iCondEnd - iCondStart + sCondClose.size());
     }
   }
 
@@ -376,7 +442,7 @@ nlohmann::json SamlService::validateAssertion(const std::string& sSamlResponse,
     }
 
     // Validate audience
-    std::string sAudience = extractElement(sConditions, "saml:Audience");
+    std::string sAudience = extractElement(sConditions, sP + "Audience");
     if (!sAudience.empty() && sAudience != sExpectedAudience) {
       throw common::AuthenticationError(
           "saml_audience_mismatch",
@@ -482,17 +548,18 @@ nlohmann::json SamlService::validateAssertion(const std::string& sSamlResponse,
   }
 
   // 9. Extract NameID and attributes
-  std::string sNameId = extractElement(sAssertion, "saml:NameID");
+  std::string sNameId = extractElement(sAssertion, sP + "NameID");
 
   nlohmann::json jAttributes = nlohmann::json::object();
 
   // Find all Attribute elements
-  std::string sAttrStatement = extractElement(sAssertion, "saml:AttributeStatement");
+  std::string sAttrStatement = extractElement(sAssertion, sP + "AttributeStatement");
   if (!sAttrStatement.empty()) {
     // Find each Attribute Name
+    std::string sAttrOpen = "<" + sP + "Attribute ";
     size_t iPos = 0;
     while (true) {
-      auto iAttrStart = sAttrStatement.find("<saml:Attribute ", iPos);
+      auto iAttrStart = sAttrStatement.find(sAttrOpen, iPos);
       if (iAttrStart == std::string::npos) break;
 
       auto iAttrTagEnd = sAttrStatement.find('>', iAttrStart);
