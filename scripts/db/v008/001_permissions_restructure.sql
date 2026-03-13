@@ -98,7 +98,12 @@ ALTER TABLE groups DROP COLUMN role;
 CREATE INDEX idx_group_members_role_scope ON group_members (user_id, role_id, scope_type, scope_id);
 CREATE INDEX idx_role_permissions_role_id ON role_permissions (role_id);
 
--- 12. Update the primary key on group_members to include role_id and scope
+-- 12. Update the primary key on group_members to include role_id
 -- A user can be in the same group with different roles at different scopes
 ALTER TABLE group_members DROP CONSTRAINT group_members_pkey;
-ALTER TABLE group_members ADD PRIMARY KEY (user_id, group_id, role_id, COALESCE(scope_type, ''), COALESCE(scope_id, 0));
+ALTER TABLE group_members ADD PRIMARY KEY (user_id, group_id, role_id);
+
+-- 13. Add unique index with COALESCE to enforce scope uniqueness for nullable columns
+-- (PostgreSQL PRIMARY KEY does not support expressions, but indexes do)
+CREATE UNIQUE INDEX idx_group_members_unique_scope
+  ON group_members (user_id, group_id, role_id, COALESCE(scope_type, ''), COALESCE(scope_id, 0));
