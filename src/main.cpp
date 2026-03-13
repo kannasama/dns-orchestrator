@@ -17,6 +17,7 @@
 #include "api/routes/ThemeRoutes.hpp"
 #include "api/routes/ProviderRoutes.hpp"
 #include "api/routes/RecordRoutes.hpp"
+#include "api/routes/RoleRoutes.hpp"
 #include "api/routes/SettingsRoutes.hpp"
 #include "api/routes/SetupRoutes.hpp"
 #include "api/routes/UserRoutes.hpp"
@@ -421,6 +422,7 @@ int main(int argc, char* argv[]) {
     auto userRoutes = std::make_unique<dns::api::routes::UserRoutes>(
         *urRepo, *grRepo, *amMiddleware);
     auto groupRoutes = std::make_unique<dns::api::routes::GroupRoutes>(*grRepo, *amMiddleware);
+    auto roleRoutes = std::make_unique<dns::api::routes::RoleRoutes>(*roleRepo, *amMiddleware);
     auto apiKeyRoutes = std::make_unique<dns::api::routes::ApiKeyRoutes>(*akrRepo, *amMiddleware);
     auto settingsRoutes = std::make_unique<dns::api::routes::SettingsRoutes>(
         *settingsRepo, *amMiddleware, msScheduler.get());
@@ -434,6 +436,7 @@ int main(int argc, char* argv[]) {
     apiServer->registerRoutes();
     userRoutes->registerRoutes(crowApp);
     groupRoutes->registerRoutes(crowApp);
+    roleRoutes->registerRoutes(crowApp);
     apiKeyRoutes->registerRoutes(crowApp);
     settingsRoutes->registerRoutes(crowApp);
     themeRoutes->registerRoutes(crowApp);
