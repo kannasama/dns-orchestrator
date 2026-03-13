@@ -1,4 +1,5 @@
 #include "dal/IdpRepository.hpp"
+#include "dal/UserRepository.hpp"
 
 #include "common/Logger.hpp"
 #include "dal/ConnectionPool.hpp"
@@ -126,4 +127,73 @@ TEST_F(IdpRepositoryTest, DeleteIdp) {
 
   auto oRow = _upRepo->findById(iId);
   EXPECT_FALSE(oRow.has_value());
+}
+
+// ── Federated user tests (Task 3) ──────────────────────────────────────────
+
+class FederatedUserTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    _sDbUrl = getDbUrl();
+    _sMasterKey = getMasterKey();
+    if (_sDbUrl.empty() || _sMasterKey.empty()) {
+      GTEST_SKIP() << "DNS_DB_URL or DNS_MASTER_KEY not set — skipping integration test";
+    }
+    dns::common::Logger::init("warn");
+
+    _upPool = std::make_unique<ConnectionPool>(_sDbUrl, 2);
+    _upUserRepo = std::make_unique<dns::dal::UserRepository>(*_upPool);
+
+    // Clean up test data
+    auto cg = _upPool->checkout();
+    pqxx::work txn(*cg);
+    txn.exec("DELETE FROM users WHERE username LIKE 'test-fed-%'");
+    txn.commit();
+  }
+
+  std::string _sDbUrl;
+  std::string _sMasterKey;
+  std::unique_ptr<ConnectionPool> _upPool;
+  std::unique_ptr<dns::dal::UserRepository> _upUserRepo;
+};
+
+TEST_F(FederatedUserTest, FindByOidcSub) {
+  // Insert a user with oidc_sub via SQL
+  auto cg = _upPool->checkout();
+  pqxx::work txn(*cg);
+  txn.exec(
+      "INSERT INTO users (username, email, auth_method, oidc_sub) "
+      "VALUES ('test-fed-oidc-user', 'oidc@test.com', 'oidc', 'oidc|12345')");
+  txn.commit();
+
+  auto oUser = _upUserRepo->findByOidcSub("oidc|12345");
+  ASSERT_TRUE(oUser.has_value());
+  EXPECT_EQ(oUser->sUsername, "test-fed-oidc-user");
+  EXPECT_EQ(oUser->sAuthMethod, "oidc");
+}
+
+TEST_F(FederatedUserTest, FindBySamlNameId) {
+  auto cg = _upPool->checkout();
+  pqxx::work txn(*cg);
+  txn.exec(
+      "INSERT INTO users (username, email, auth_method, saml_name_id) "
+      "VALUES ('test-fed-saml-user', 'saml@test.com', 'saml', 'saml-name-id-abc')");
+  txn.commit();
+
+  auto oUser = _upUserRepo->findBySamlNameId("saml-name-id-abc");
+  ASSERT_TRUE(oUser.has_value());
+  EXPECT_EQ(oUser->sUsername, "test-fed-saml-user");
+  EXPECT_EQ(oUser->sAuthMethod, "saml");
+}
+
+TEST_F(FederatedUserTest, CreateFederatedUser) {
+  int64_t iId = _upUserRepo->createFederated(
+      "test-fed-new-user", "new@test.com", "oidc", "oidc|new-sub", "");
+  EXPECT_GT(iId, 0);
+
+  auto oUser = _upUserRepo->findById(iId);
+  ASSERT_TRUE(oUser.has_value());
+  EXPECT_EQ(oUser->sUsername, "test-fed-new-user");
+  EXPECT_EQ(oUser->sAuthMethod, "oidc");
+  EXPECT_TRUE(oUser->sPasswordHash.empty());
 }

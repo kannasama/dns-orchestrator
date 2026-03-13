@@ -204,4 +204,80 @@ std::vector<std::pair<int64_t, std::string>> UserRepository::listGroupsForUser(i
   return vGroups;
 }
 
+std::optional<UserRow> UserRepository::findByOidcSub(const std::string& sOidcSub) {
+  auto cg = _cpPool.checkout();
+  pqxx::work txn(*cg);
+  auto result = txn.exec(
+      "SELECT id, username, COALESCE(email, ''), COALESCE(password_hash, ''), "
+      "auth_method::text, is_active, COALESCE(force_password_change, false) "
+      "FROM users WHERE oidc_sub = $1",
+      pqxx::params{sOidcSub});
+  txn.commit();
+
+  if (result.empty()) return std::nullopt;
+
+  auto row = result[0];
+  return UserRow{
+      row[0].as<int64_t>(),
+      row[1].as<std::string>(),
+      row[2].as<std::string>(),
+      row[3].as<std::string>(),
+      row[4].as<std::string>(),
+      row[5].as<bool>(),
+      row[6].as<bool>(),
+  };
+}
+
+std::optional<UserRow> UserRepository::findBySamlNameId(const std::string& sSamlNameId) {
+  auto cg = _cpPool.checkout();
+  pqxx::work txn(*cg);
+  auto result = txn.exec(
+      "SELECT id, username, COALESCE(email, ''), COALESCE(password_hash, ''), "
+      "auth_method::text, is_active, COALESCE(force_password_change, false) "
+      "FROM users WHERE saml_name_id = $1",
+      pqxx::params{sSamlNameId});
+  txn.commit();
+
+  if (result.empty()) return std::nullopt;
+
+  auto row = result[0];
+  return UserRow{
+      row[0].as<int64_t>(),
+      row[1].as<std::string>(),
+      row[2].as<std::string>(),
+      row[3].as<std::string>(),
+      row[4].as<std::string>(),
+      row[5].as<bool>(),
+      row[6].as<bool>(),
+  };
+}
+
+int64_t UserRepository::createFederated(const std::string& sUsername, const std::string& sEmail,
+                                        const std::string& sAuthMethod,
+                                        const std::string& sOidcSub,
+                                        const std::string& sSamlNameId) {
+  auto cg = _cpPool.checkout();
+  pqxx::work txn(*cg);
+  auto result = txn.exec(
+      "INSERT INTO users (username, email, auth_method, oidc_sub, saml_name_id) "
+      "VALUES ($1, $2, $3::auth_method, NULLIF($4, ''), NULLIF($5, '')) RETURNING id",
+      pqxx::params{sUsername, sEmail, sAuthMethod, sOidcSub, sSamlNameId});
+  txn.commit();
+  return result.one_row()[0].as<int64_t>();
+}
+
+void UserRepository::updateFederatedEmail(int64_t iUserId, const std::string& sEmail) {
+  auto cg = _cpPool.checkout();
+  pqxx::work txn(*cg);
+  auto result = txn.exec(
+      "UPDATE users SET email = $2, updated_at = NOW() WHERE id = $1",
+      pqxx::params{iUserId, sEmail});
+  txn.commit();
+
+  if (result.affected_rows() == 0) {
+    throw common::NotFoundError("USER_NOT_FOUND",
+                                "User with id " + std::to_string(iUserId) + " not found");
+  }
+}
+
 }  // namespace dns::dal

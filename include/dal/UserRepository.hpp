@@ -64,6 +64,20 @@ class UserRepository {
   /// List groups for a user as (group_id, group_name) pairs.
   std::vector<std::pair<int64_t, std::string>> listGroupsForUser(int64_t iUserId);
 
+  /// Find a user by OIDC subject identifier. Returns nullopt if not found.
+  std::optional<UserRow> findByOidcSub(const std::string& sOidcSub);
+
+  /// Find a user by SAML NameID. Returns nullopt if not found.
+  std::optional<UserRow> findBySamlNameId(const std::string& sSamlNameId);
+
+  /// Create a federated user (no password hash). Returns the new user ID.
+  int64_t createFederated(const std::string& sUsername, const std::string& sEmail,
+                          const std::string& sAuthMethod,
+                          const std::string& sOidcSub, const std::string& sSamlNameId);
+
+  /// Update a federated user's email address.
+  void updateFederatedEmail(int64_t iUserId, const std::string& sEmail);
+
  private:
   ConnectionPool& _cpPool;
 };
