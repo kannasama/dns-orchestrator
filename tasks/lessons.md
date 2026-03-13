@@ -90,3 +90,20 @@ context, not a new instruction to proceed.
 
 **Applied:** Any session continuation after compaction. Always check the summary for
 pause/stop/wait directives before taking action.
+
+## 2026-03-13 — Use `vue-tsc -b` not `vue-tsc --noEmit` for Docker-parity type checking
+
+**Mistake:** Verified TypeScript compilation locally with `vue-tsc --noEmit` which passed, but
+the Docker build uses `vue-tsc -b` (project references / build mode) which has stricter checking.
+The build failed in Docker with TS2532 (`Object is possibly 'undefined'`) on array index access
+`tabs[e.index].key` that `--noEmit` did not flag.
+
+**Pattern:** Different `vue-tsc` invocation modes have different strictness levels. The Docker
+build script runs `vue-tsc -b && vite build`, so local verification must match.
+
+**Rule:** When verifying TypeScript compilation for Vue projects, always use `vue-tsc -b` (the
+same command the CI/Docker build uses) rather than `vue-tsc --noEmit`. Check the project's
+`package.json` `build` script to confirm the exact command.
+
+**Verification step:** Before committing Vue/TS changes, run the exact build command from
+`package.json` (`npm run build` or `vue-tsc -b && vite build`) to catch strictness differences.
