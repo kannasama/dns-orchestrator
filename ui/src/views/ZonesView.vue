@@ -121,11 +121,6 @@ function navigateToZone(zone: Zone) {
   router.push({ name: 'zone-detail', params: { id: zone.id } })
 }
 
-function gitRepoName(repoId: number | null): string {
-  if (!repoId) return ''
-  return allGitRepos.value.find((r) => r.id === repoId)?.name || `#${repoId}`
-}
-
 onMounted(async () => {
   await Promise.all([
     fetchZones(),
