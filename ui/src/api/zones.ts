@@ -22,6 +22,8 @@ export function updateZone(
     deployment_retention?: number | null
     manage_soa?: boolean
     manage_ns?: boolean
+    git_repo_id?: number | null
+    git_branch?: string | null
   },
 ): Promise<{ message: string }> {
   return put(`/zones/${id}`, data)

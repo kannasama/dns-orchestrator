@@ -46,6 +46,8 @@ export interface Zone {
   manage_ns: boolean
   sync_status?: string
   sync_checked_at?: string
+  git_repo_id: number | null
+  git_branch: string | null
   created_at: number
 }
 
@@ -55,6 +57,8 @@ export interface ZoneCreate {
   deployment_retention?: number | null
   manage_soa?: boolean
   manage_ns?: boolean
+  git_repo_id?: number | null
+  git_branch?: string | null
 }
 
 export interface DnsRecord {
@@ -326,4 +330,42 @@ export interface EnabledIdp {
   id: number
   name: string
   type: 'oidc' | 'saml'
+}
+
+export interface GitRepo {
+  id: number
+  name: string
+  remote_url: string
+  auth_type: 'ssh' | 'https' | 'none'
+  has_credentials: boolean
+  default_branch: string
+  local_path: string
+  known_hosts: string
+  is_enabled: boolean
+  last_sync_at: string | null
+  last_sync_status: string | null
+  last_sync_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface GitRepoCreate {
+  name: string
+  remote_url: string
+  auth_type: 'ssh' | 'https' | 'none'
+  credentials?: string
+  default_branch?: string
+  local_path?: string
+  known_hosts?: string
+}
+
+export interface GitRepoUpdate {
+  name: string
+  remote_url: string
+  auth_type: 'ssh' | 'https' | 'none'
+  credentials?: string
+  default_branch?: string
+  local_path?: string
+  known_hosts?: string
+  is_enabled?: boolean
 }

@@ -142,3 +142,36 @@ TEST_F(ZoneRepositoryTest, UpdateSoaNsFlags) {
   EXPECT_FALSE(oRow->bManageSoa);
   EXPECT_TRUE(oRow->bManageNs);
 }
+
+TEST_F(ZoneRepositoryTest, CreateWithGitRepoIdAndBranch) {
+  // Create a git_repos row first
+  int64_t iRepoId = 0;
+  {
+    auto cg = _cpPool->checkout();
+    pqxx::work txn(*cg);
+    txn.exec("DELETE FROM git_repos");
+    txn.exec("INSERT INTO git_repos (name, remote_url, auth_type, default_branch) "
+             "VALUES ('test-repo', 'https://gh.com/r.git', 'none', 'main')");
+    auto res = txn.exec("SELECT id FROM git_repos WHERE name = 'test-repo'");
+    iRepoId = res[0][0].as<int64_t>();
+    txn.commit();
+  }
+
+  int64_t iId = _zrRepo->create("git-zone.example.com", _iViewId, std::nullopt,
+                                false, false, iRepoId, "production");
+
+  auto oZone = _zrRepo->findById(iId);
+  ASSERT_TRUE(oZone.has_value());
+  ASSERT_TRUE(oZone->oGitRepoId.has_value());
+  EXPECT_EQ(*oZone->oGitRepoId, iRepoId);
+  ASSERT_TRUE(oZone->oGitBranch.has_value());
+  EXPECT_EQ(*oZone->oGitBranch, "production");
+}
+
+TEST_F(ZoneRepositoryTest, CreateWithoutGitRepoHasNullFields) {
+  int64_t iId = _zrRepo->create("no-git.example.com", _iViewId, std::nullopt);
+  auto oZone = _zrRepo->findById(iId);
+  ASSERT_TRUE(oZone.has_value());
+  EXPECT_FALSE(oZone->oGitRepoId.has_value());
+  EXPECT_FALSE(oZone->oGitBranch.has_value());
+}

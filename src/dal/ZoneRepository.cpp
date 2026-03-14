@@ -12,7 +12,9 @@ ZoneRepository::~ZoneRepository() = default;
 
 int64_t ZoneRepository::create(const std::string& sName, int64_t iViewId,
                                std::optional<int> oRetention,
-                               bool bManageSoa, bool bManageNs) {
+                               bool bManageSoa, bool bManageNs,
+                               std::optional<int64_t> oGitRepoId,
+                               std::optional<std::string> oGitBranch) {
   auto cg = _cpPool.checkout();
   pqxx::work txn(*cg);
 
@@ -20,14 +22,18 @@ int64_t ZoneRepository::create(const std::string& sName, int64_t iViewId,
     pqxx::result result;
     if (oRetention.has_value()) {
       result = txn.exec(
-          "INSERT INTO zones (name, view_id, deployment_retention, manage_soa, manage_ns) "
-          "VALUES ($1, $2, $3, $4, $5) RETURNING id",
-          pqxx::params{sName, iViewId, *oRetention, bManageSoa, bManageNs});
+          "INSERT INTO zones (name, view_id, deployment_retention, manage_soa, manage_ns, "
+          "git_repo_id, git_branch) "
+          "VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+          pqxx::params{sName, iViewId, *oRetention, bManageSoa, bManageNs,
+                       oGitRepoId, oGitBranch});
     } else {
       result = txn.exec(
-          "INSERT INTO zones (name, view_id, manage_soa, manage_ns) "
-          "VALUES ($1, $2, $3, $4) RETURNING id",
-          pqxx::params{sName, iViewId, bManageSoa, bManageNs});
+          "INSERT INTO zones (name, view_id, manage_soa, manage_ns, "
+          "git_repo_id, git_branch) "
+          "VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+          pqxx::params{sName, iViewId, bManageSoa, bManageNs,
+                       oGitRepoId, oGitBranch});
     }
     txn.commit();
     return result.one_row()[0].as<int64_t>();
@@ -46,7 +52,8 @@ std::vector<ZoneRow> ZoneRepository::listAll() {
   auto result = txn.exec(
       "SELECT id, name, view_id, deployment_retention, manage_soa, manage_ns, "
       "EXTRACT(EPOCH FROM created_at)::bigint, "
-      "sync_status, EXTRACT(EPOCH FROM sync_checked_at)::bigint "
+      "sync_status, EXTRACT(EPOCH FROM sync_checked_at)::bigint, "
+      "git_repo_id, git_branch "
       "FROM zones ORDER BY id");
   txn.commit();
 
@@ -67,6 +74,8 @@ std::vector<ZoneRow> ZoneRepository::listAll() {
       zr.oSyncCheckedAt = std::chrono::system_clock::time_point(
           std::chrono::seconds(row[8].as<int64_t>()));
     }
+    if (!row[9].is_null()) zr.oGitRepoId = row[9].as<int64_t>();
+    if (!row[10].is_null()) zr.oGitBranch = row[10].as<std::string>();
     vRows.push_back(std::move(zr));
   }
   return vRows;
@@ -78,7 +87,8 @@ std::vector<ZoneRow> ZoneRepository::listByViewId(int64_t iViewId) {
   auto result = txn.exec(
       "SELECT id, name, view_id, deployment_retention, manage_soa, manage_ns, "
       "EXTRACT(EPOCH FROM created_at)::bigint, "
-      "sync_status, EXTRACT(EPOCH FROM sync_checked_at)::bigint "
+      "sync_status, EXTRACT(EPOCH FROM sync_checked_at)::bigint, "
+      "git_repo_id, git_branch "
       "FROM zones WHERE view_id = $1 ORDER BY id",
       pqxx::params{iViewId});
   txn.commit();
@@ -100,6 +110,8 @@ std::vector<ZoneRow> ZoneRepository::listByViewId(int64_t iViewId) {
       zr.oSyncCheckedAt = std::chrono::system_clock::time_point(
           std::chrono::seconds(row[8].as<int64_t>()));
     }
+    if (!row[9].is_null()) zr.oGitRepoId = row[9].as<int64_t>();
+    if (!row[10].is_null()) zr.oGitBranch = row[10].as<std::string>();
     vRows.push_back(std::move(zr));
   }
   return vRows;
@@ -111,7 +123,8 @@ std::optional<ZoneRow> ZoneRepository::findById(int64_t iId) {
   auto result = txn.exec(
       "SELECT id, name, view_id, deployment_retention, manage_soa, manage_ns, "
       "EXTRACT(EPOCH FROM created_at)::bigint, "
-      "sync_status, EXTRACT(EPOCH FROM sync_checked_at)::bigint "
+      "sync_status, EXTRACT(EPOCH FROM sync_checked_at)::bigint, "
+      "git_repo_id, git_branch "
       "FROM zones WHERE id = $1",
       pqxx::params{iId});
   txn.commit();
@@ -132,12 +145,16 @@ std::optional<ZoneRow> ZoneRepository::findById(int64_t iId) {
     zr.oSyncCheckedAt = std::chrono::system_clock::time_point(
         std::chrono::seconds(result[0][8].as<int64_t>()));
   }
+  if (!result[0][9].is_null()) zr.oGitRepoId = result[0][9].as<int64_t>();
+  if (!result[0][10].is_null()) zr.oGitBranch = result[0][10].as<std::string>();
   return zr;
 }
 
 void ZoneRepository::update(int64_t iId, const std::string& sName, int64_t iViewId,
                             std::optional<int> oRetention,
-                            bool bManageSoa, bool bManageNs) {
+                            bool bManageSoa, bool bManageNs,
+                            std::optional<int64_t> oGitRepoId,
+                            std::optional<std::string> oGitBranch) {
   auto cg = _cpPool.checkout();
   pqxx::work txn(*cg);
 
@@ -146,13 +163,17 @@ void ZoneRepository::update(int64_t iId, const std::string& sName, int64_t iView
     if (oRetention.has_value()) {
       result = txn.exec(
           "UPDATE zones SET name = $2, view_id = $3, deployment_retention = $4, "
-          "manage_soa = $5, manage_ns = $6 WHERE id = $1",
-          pqxx::params{iId, sName, iViewId, *oRetention, bManageSoa, bManageNs});
+          "manage_soa = $5, manage_ns = $6, git_repo_id = $7, git_branch = $8 "
+          "WHERE id = $1",
+          pqxx::params{iId, sName, iViewId, *oRetention, bManageSoa, bManageNs,
+                       oGitRepoId, oGitBranch});
     } else {
       result = txn.exec(
           "UPDATE zones SET name = $2, view_id = $3, deployment_retention = NULL, "
-          "manage_soa = $4, manage_ns = $5 WHERE id = $1",
-          pqxx::params{iId, sName, iViewId, bManageSoa, bManageNs});
+          "manage_soa = $4, manage_ns = $5, git_repo_id = $6, git_branch = $7 "
+          "WHERE id = $1",
+          pqxx::params{iId, sName, iViewId, bManageSoa, bManageNs,
+                       oGitRepoId, oGitBranch});
     }
     txn.commit();
   } catch (const pqxx::unique_violation&) {

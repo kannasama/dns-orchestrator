@@ -70,6 +70,11 @@ const router = createRouter({
           component: () => import('../views/VariablesView.vue'),
         },
         {
+          path: 'git-repos',
+          name: 'git-repos',
+          component: () => import('../views/GitReposView.vue'),
+        },
+        {
           path: 'deployments',
           name: 'deployments',
           component: () => import('../views/DeploymentsView.vue'),

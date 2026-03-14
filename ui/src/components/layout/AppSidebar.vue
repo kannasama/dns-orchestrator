@@ -12,6 +12,7 @@ const mainNavItems = [
   { label: 'Views', icon: 'pi pi-eye', to: '/views' },
   { label: 'Zones', icon: 'pi pi-globe', to: '/zones' },
   { label: 'Variables', icon: 'pi pi-code', to: '/variables' },
+  { label: 'Git Repos', icon: 'pi pi-github', to: '/git-repos' },
   { label: 'Deployments', icon: 'pi pi-upload', to: '/deployments' },
   { label: 'Audit Log', icon: 'pi pi-history', to: '/audit' },
 ]

@@ -20,6 +20,8 @@ struct ZoneRow {
   bool bManageNs = false;
   std::string sSyncStatus;  // "unknown", "in_sync", "drift", "error"
   std::optional<std::chrono::system_clock::time_point> oSyncCheckedAt;
+  std::optional<int64_t> oGitRepoId;      // FK to git_repos
+  std::optional<std::string> oGitBranch;   // Branch override (nullopt = use repo default)
   std::chrono::system_clock::time_point tpCreatedAt;
 };
 
@@ -33,7 +35,9 @@ class ZoneRepository {
   /// Create a zone. Returns the new ID.
   int64_t create(const std::string& sName, int64_t iViewId,
                  std::optional<int> oRetention,
-                 bool bManageSoa = false, bool bManageNs = false);
+                 bool bManageSoa = false, bool bManageNs = false,
+                 std::optional<int64_t> oGitRepoId = std::nullopt,
+                 std::optional<std::string> oGitBranch = std::nullopt);
 
   /// List all zones.
   std::vector<ZoneRow> listAll();
@@ -47,7 +51,9 @@ class ZoneRepository {
   /// Update a zone's name, view, and retention.
   void update(int64_t iId, const std::string& sName, int64_t iViewId,
               std::optional<int> oRetention, bool bManageSoa = false,
-              bool bManageNs = false);
+              bool bManageNs = false,
+              std::optional<int64_t> oGitRepoId = std::nullopt,
+              std::optional<std::string> oGitBranch = std::nullopt);
 
   /// Update a zone's sync status and set sync_checked_at to NOW().
   void updateSyncStatus(int64_t iZoneId, const std::string& sSyncStatus);

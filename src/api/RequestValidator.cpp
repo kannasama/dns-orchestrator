@@ -62,4 +62,37 @@ void RequestValidator::validateApiKeyDescription(const std::string& s) {
         "api_key_description exceeds maximum length of 512");
 }
 
+void RequestValidator::validateGitRepoName(const std::string& sName) {
+  validateRequired(sName, "name");
+  validateStringLength(sName, "name", 100);
+}
+
+void RequestValidator::validateGitRemoteUrl(const std::string& sUrl) {
+  validateRequired(sUrl, "remote_url");
+  validateStringLength(sUrl, "remote_url", 500);
+  if (sUrl.rfind("git@", 0) != 0 && sUrl.rfind("ssh://", 0) != 0 &&
+      sUrl.rfind("https://", 0) != 0 && sUrl.rfind("http://", 0) != 0 &&
+      sUrl.rfind("file://", 0) != 0) {
+    throw dns::common::ValidationError(
+        "INVALID_REMOTE_URL",
+        "remote_url must start with git@, ssh://, https://, http://, or file://");
+  }
+}
+
+void RequestValidator::validateGitAuthType(const std::string& sAuthType) {
+  if (sAuthType != "ssh" && sAuthType != "https" && sAuthType != "none") {
+    throw dns::common::ValidationError(
+        "INVALID_AUTH_TYPE", "auth_type must be 'ssh', 'https', or 'none'");
+  }
+}
+
+void RequestValidator::validateGitBranch(const std::string& sBranch) {
+  if (sBranch.empty()) return;
+  validateStringLength(sBranch, "branch", 100);
+  if (sBranch[0] == '-' || sBranch.find("..") != std::string::npos) {
+    throw dns::common::ValidationError(
+        "INVALID_BRANCH", "Invalid git branch name");
+  }
+}
+
 }  // namespace dns::api

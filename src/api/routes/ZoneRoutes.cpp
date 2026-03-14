@@ -46,6 +46,10 @@ nlohmann::json zoneRowToJson(const dns::dal::ZoneRow& row) {
   } else {
     j["sync_checked_at"] = nullptr;
   }
+  j["git_repo_id"] = row.oGitRepoId.has_value() ? nlohmann::json(*row.oGitRepoId)
+                                                  : nlohmann::json(nullptr);
+  j["git_branch"] = row.oGitBranch.has_value() ? nlohmann::json(*row.oGitBranch)
+                                                : nlohmann::json(nullptr);
   return j;
 }
 
@@ -173,7 +177,18 @@ void ZoneRoutes::registerRoutes(crow::SimpleApp& app) {
           bool bManageSoa = jBody.value("manage_soa", false);
           bool bManageNs = jBody.value("manage_ns", false);
 
-          int64_t iId = _zrRepo.create(sName, iViewId, oRetention, bManageSoa, bManageNs);
+          std::optional<int64_t> oGitRepoId;
+          if (jBody.contains("git_repo_id") && !jBody["git_repo_id"].is_null()) {
+            oGitRepoId = jBody["git_repo_id"].get<int64_t>();
+          }
+          std::optional<std::string> oGitBranch;
+          if (jBody.contains("git_branch") && !jBody["git_branch"].is_null()) {
+            oGitBranch = jBody["git_branch"].get<std::string>();
+            RequestValidator::validateGitBranch(*oGitBranch);
+          }
+
+          int64_t iId = _zrRepo.create(sName, iViewId, oRetention, bManageSoa, bManageNs,
+                                       oGitRepoId, oGitBranch);
           return jsonResponse(201, {{"id", iId}});
         } catch (const common::AppError& e) {
           return errorResponse(e);
@@ -225,7 +240,18 @@ void ZoneRoutes::registerRoutes(crow::SimpleApp& app) {
           bool bManageSoa = jBody.value("manage_soa", false);
           bool bManageNs = jBody.value("manage_ns", false);
 
-          _zrRepo.update(iId, sName, iViewId, oRetention, bManageSoa, bManageNs);
+          std::optional<int64_t> oGitRepoId;
+          if (jBody.contains("git_repo_id") && !jBody["git_repo_id"].is_null()) {
+            oGitRepoId = jBody["git_repo_id"].get<int64_t>();
+          }
+          std::optional<std::string> oGitBranch;
+          if (jBody.contains("git_branch") && !jBody["git_branch"].is_null()) {
+            oGitBranch = jBody["git_branch"].get<std::string>();
+            RequestValidator::validateGitBranch(*oGitBranch);
+          }
+
+          _zrRepo.update(iId, sName, iViewId, oRetention, bManageSoa, bManageNs,
+                         oGitRepoId, oGitBranch);
           return jsonResponse(200, {{"message", "Zone updated"}});
         } catch (const common::AppError& e) {
           return errorResponse(e);

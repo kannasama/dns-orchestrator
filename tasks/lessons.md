@@ -123,3 +123,18 @@ divergence.
 a new commit for fixes. A clean `git push` is worth more than a pretty `git log`.
 
 **Applied:** All post-push fixes. Use a new commit (`fix: ...`) instead of amending.
+
+## 2026-03-14 — Use `txn.exec()` with `pqxx::params{}`, not `txn.exec_params()`
+
+**Mistake:** Wrote `GitRepoRepository` using `txn.exec_params("query", arg1, arg2, ...)` which
+is deprecated in the project's version of libpqxx. Build failed with `-Werror` because
+`exec_params` triggers a deprecation warning.
+
+**Pattern:** The codebase uses `txn.exec("query", pqxx::params{arg1, arg2, ...})` consistently
+across all other repositories (ProviderRepository, ZoneRepository, etc.).
+
+**Rule:** Always use `txn.exec("query", pqxx::params{...})` for parameterized queries, never
+`txn.exec_params()`. Check existing DAL files for the correct API pattern before writing new
+repository code.
+
+**Applied:** All new DAL repository implementations.

@@ -24,6 +24,7 @@
 #include "api/routes/VariableRoutes.hpp"
 #include "api/routes/ViewRoutes.hpp"
 #include "api/routes/ZoneRoutes.hpp"
+#include "api/routes/GitRepoRoutes.hpp"
 #include "api/routes/IdpRoutes.hpp"
 #include "api/routes/OidcRoutes.hpp"
 #include "api/routes/SamlRoutes.hpp"
@@ -37,7 +38,9 @@
 #include "core/RollbackEngine.hpp"
 #include "core/ThreadPool.hpp"
 #include "core/VariableEngine.hpp"
-#include "gitops/GitOpsMirror.hpp"
+#include "gitops/GitRepoManager.hpp"
+#include "gitops/GitOpsMigration.hpp"
+#include "dal/GitRepoRepository.hpp"
 #include "dal/ApiKeyRepository.hpp"
 #include "dal/AuditRepository.hpp"
 #include "dal/ConnectionPool.hpp"
@@ -261,9 +264,8 @@ int main(int argc, char* argv[]) {
     // ── Step 5: Foundation ready ─────────────────────────────────────────
     spLog->info("Step 5: Foundation layer ready");
 
-    // ── Step 6: GitOpsMirror pointer (initialized after engines in Step 9) ─
-    std::unique_ptr<dns::gitops::GitOpsMirror> upGitMirror;
-    spLog->info("Step 6: GitOpsMirror deferred until engines ready");
+    // ── Step 6: GitRepoManager (initialized after engines in Step 9) ──────
+    spLog->info("Step 6: GitRepoManager deferred until engines ready");
 
     // ── Step 7: Initialize ThreadPool ──────────────────────────────────────
     auto tpPool = std::make_unique<dns::core::ThreadPool>(cfgApp.iThreadPoolSize);
@@ -289,6 +291,7 @@ int main(int argc, char* argv[]) {
     auto roleRepo = std::make_unique<dns::dal::RoleRepository>(*cpPool);
     auto settingsRepo = std::make_unique<dns::dal::SettingsRepository>(*cpPool);
     auto idpRepo = std::make_unique<dns::dal::IdpRepository>(*cpPool, *csService);
+    auto gitRepoRepo = std::make_unique<dns::dal::GitRepoRepository>(*cpPool, *csService);
 
     auto msScheduler = std::make_unique<dns::core::MaintenanceScheduler>();
 
@@ -364,22 +367,20 @@ int main(int argc, char* argv[]) {
     auto deEngine = std::make_unique<dns::core::DiffEngine>(
         *zrRepo, *vrRepo, *rrRepo, *prRepo, *veEngine);
 
-    // ── Step 6 (deferred): Initialize GitOpsMirror now that engines are ready ─
-    if (cfgApp.oGitRemoteUrl.has_value() && !cfgApp.oGitRemoteUrl->empty()) {
-      upGitMirror = std::make_unique<dns::gitops::GitOpsMirror>(
-          *zrRepo, *vrRepo, *rrRepo, *veEngine);
-      upGitMirror->initialize(*cfgApp.oGitRemoteUrl, cfgApp.sGitLocalPath,
-                             cfgApp.oGitSshKeyPath, cfgApp.oGitKnownHostsFile);
-      upGitMirror->pull();
-      spLog->info("Step 6: GitOpsMirror initialized (remote={}, local={})",
-                  *cfgApp.oGitRemoteUrl, cfgApp.sGitLocalPath);
-    } else {
-      spLog->info("Step 6: GitOpsMirror disabled (DNS_GIT_REMOTE_URL not set)");
-    }
+    // ── Step 6a: Migrate legacy env vars to git_repos table ──────────────
+    dns::gitops::GitOpsMigration::migrateIfNeeded(*gitRepoRepo, *zrRepo);
+
+    // ── Step 6b: Initialize GitRepoManager ─────────────────────────────────
+    std::string sGitBasePath = settingsRepo->getValue("gitops.base_path",
+                                                      "/var/meridian-dns/repos");
+    auto upGitRepoManager = std::make_unique<dns::gitops::GitRepoManager>(
+        *gitRepoRepo, *zrRepo, *vrRepo, *rrRepo, *veEngine, sGitBasePath);
+    upGitRepoManager->initialize();
+    spLog->info("Step 6: GitRepoManager initialized");
 
     auto depEngine = std::make_unique<dns::core::DeploymentEngine>(
         *deEngine, *veEngine, *zrRepo, *vrRepo, *rrRepo, *prRepo,
-        *drRepo, *arRepo, upGitMirror.get(), cfgApp.iDeploymentRetentionCount);
+        *drRepo, *arRepo, upGitRepoManager.get(), cfgApp.iDeploymentRetentionCount);
     auto reEngine = std::make_unique<dns::core::RollbackEngine>(*drRepo, *rrRepo, *arRepo);
     spLog->info("Step 9: Core engines initialized "
                 "(VariableEngine, DiffEngine, DeploymentEngine, RollbackEngine)");
@@ -440,6 +441,8 @@ int main(int argc, char* argv[]) {
     auto apiKeyRoutes = std::make_unique<dns::api::routes::ApiKeyRoutes>(*akrRepo, *amMiddleware);
     auto settingsRoutes = std::make_unique<dns::api::routes::SettingsRoutes>(
         *settingsRepo, *amMiddleware, msScheduler.get());
+    auto gitRepoRoutes = std::make_unique<dns::api::routes::GitRepoRoutes>(
+        *gitRepoRepo, *amMiddleware, *upGitRepoManager);
     auto idpRoutes = std::make_unique<dns::api::routes::IdpRoutes>(
         *idpRepo, *amMiddleware, *oidcService, *samlService);
     auto oidcRoutes = std::make_unique<dns::api::routes::OidcRoutes>(
@@ -460,6 +463,7 @@ int main(int argc, char* argv[]) {
     apiKeyRoutes->registerRoutes(crowApp);
     settingsRoutes->registerRoutes(crowApp);
     themeRoutes->registerRoutes(crowApp);
+    gitRepoRoutes->registerRoutes(crowApp);
     idpRoutes->registerRoutes(crowApp);
     oidcRoutes->registerRoutes(crowApp);
     samlRoutes->registerRoutes(crowApp);

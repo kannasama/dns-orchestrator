@@ -18,7 +18,7 @@
 #include "dal/RecordRepository.hpp"
 #include "dal/ViewRepository.hpp"
 #include "dal/ZoneRepository.hpp"
-#include "gitops/GitOpsMirror.hpp"
+#include "gitops/GitRepoManager.hpp"
 #include "providers/ProviderFactory.hpp"
 
 namespace dns::core {
@@ -31,7 +31,7 @@ DeploymentEngine::DeploymentEngine(DiffEngine& deEngine,
                                    dns::dal::ProviderRepository& prRepo,
                                    dns::dal::DeploymentRepository& drRepo,
                                    dns::dal::AuditRepository& arRepo,
-                                   dns::gitops::GitOpsMirror* pGitMirror,
+                                   dns::gitops::GitRepoManager* pGitRepoManager,
                                    int iRetentionCount)
     : _deEngine(deEngine),
       _veEngine(veEngine),
@@ -41,7 +41,7 @@ DeploymentEngine::DeploymentEngine(DiffEngine& deEngine,
       _prRepo(prRepo),
       _drRepo(drRepo),
       _arRepo(arRepo),
-      _pGitMirror(pGitMirror),
+      _pGitRepoManager(pGitRepoManager),
       _iRetentionCount(iRetentionCount) {}
 
 DeploymentEngine::~DeploymentEngine() = default;
@@ -270,8 +270,8 @@ void DeploymentEngine::push(int64_t iZoneId,
   _drRepo.pruneByRetention(iZoneId, iRetention);
 
   // 8. GitOps mirror commit (non-fatal)
-  if (_pGitMirror) {
-    _pGitMirror->commit(iZoneId, sActor);
+  if (_pGitRepoManager) {
+    _pGitRepoManager->commitZoneSnapshot(iZoneId, sActor);
   }
 
   // 9. Hard-delete pending-delete records after successful push

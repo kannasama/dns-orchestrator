@@ -17,28 +17,39 @@ import { useConfirmAction } from '../composables/useConfirm'
 import { useRole } from '../composables/useRole'
 import * as zoneApi from '../api/zones'
 import * as viewApi from '../api/views'
-import type { Zone, ZoneCreate, View } from '../types'
+import * as gitRepoApi from '../api/gitRepos'
+import type { Zone, ZoneCreate, View, GitRepo } from '../types'
 
 const router = useRouter()
 const { isAdmin } = useRole()
 const { confirmDelete } = useConfirmAction()
 
+type ZoneUpdateData = {
+  name: string
+  view_id?: number | null
+  deployment_retention?: number | null
+  manage_soa?: boolean
+  manage_ns?: boolean
+  git_repo_id?: number | null
+  git_branch?: string | null
+}
+
 const { items: zones, loading, fetch: fetchZones, create, update, remove } = useCrud<
   Zone,
   ZoneCreate,
-  { name: string; view_id?: number | null; deployment_retention?: number | null; manage_soa?: boolean; manage_ns?: boolean }
+  ZoneUpdateData
 >(
   {
     list: () => zoneApi.listZones(),
     create: zoneApi.createZone,
-    update: (id: number, data: { name: string; view_id?: number | null; deployment_retention?: number | null; manage_soa?: boolean; manage_ns?: boolean }) =>
-      zoneApi.updateZone(id, data),
+    update: (id: number, data: ZoneUpdateData) => zoneApi.updateZone(id, data),
     remove: zoneApi.deleteZone,
   },
   'Zone',
 )
 
 const allViews = ref<View[]>([])
+const allGitRepos = ref<GitRepo[]>([])
 const drawerVisible = ref(false)
 const editingId = ref<number | null>(null)
 const form = ref({
@@ -47,11 +58,13 @@ const form = ref({
   deployment_retention: null as number | null,
   manage_soa: false,
   manage_ns: false,
+  git_repo_id: null as number | null,
+  git_branch: '' as string,
 })
 
 function openCreate() {
   editingId.value = null
-  form.value = { name: '', view_id: null, deployment_retention: null, manage_soa: false, manage_ns: false }
+  form.value = { name: '', view_id: null, deployment_retention: null, manage_soa: false, manage_ns: false, git_repo_id: null, git_branch: '' }
   drawerVisible.value = true
 }
 
@@ -63,12 +76,15 @@ function openEdit(zone: Zone) {
     deployment_retention: zone.deployment_retention,
     manage_soa: zone.manage_soa,
     manage_ns: zone.manage_ns,
+    git_repo_id: zone.git_repo_id,
+    git_branch: zone.git_branch || '',
   }
   drawerVisible.value = true
 }
 
 async function handleSubmit() {
   let ok: boolean
+  const gitBranch = form.value.git_branch.trim() || null
   if (editingId.value !== null) {
     ok = await update(editingId.value, {
       name: form.value.name,
@@ -76,6 +92,8 @@ async function handleSubmit() {
       deployment_retention: form.value.deployment_retention,
       manage_soa: form.value.manage_soa,
       manage_ns: form.value.manage_ns,
+      git_repo_id: form.value.git_repo_id,
+      git_branch: gitBranch,
     })
   } else {
     ok = await create({
@@ -84,6 +102,8 @@ async function handleSubmit() {
       deployment_retention: form.value.deployment_retention,
       manage_soa: form.value.manage_soa,
       manage_ns: form.value.manage_ns,
+      git_repo_id: form.value.git_repo_id,
+      git_branch: gitBranch,
     })
   }
   if (ok) drawerVisible.value = false
@@ -101,8 +121,17 @@ function navigateToZone(zone: Zone) {
   router.push({ name: 'zone-detail', params: { id: zone.id } })
 }
 
+function gitRepoName(repoId: number | null): string {
+  if (!repoId) return ''
+  return allGitRepos.value.find((r) => r.id === repoId)?.name || `#${repoId}`
+}
+
 onMounted(async () => {
-  await Promise.all([fetchZones(), viewApi.listViews().then((v) => (allViews.value = v))])
+  await Promise.all([
+    fetchZones(),
+    viewApi.listViews().then((v) => (allViews.value = v)),
+    gitRepoApi.listGitRepos().then((r) => (allGitRepos.value = r)),
+  ])
 })
 </script>
 
@@ -219,6 +248,31 @@ onMounted(async () => {
           <div class="toggle-row">
             <ToggleSwitch id="zone-manage-ns" v-model="form.manage_ns" />
             <label for="zone-manage-ns" class="toggle-label" v-tooltip.right="'When enabled, NS records are included in diff previews and deployments. Enable for self-hosted providers (e.g. PowerDNS).'">Manage NS records</label>
+          </div>
+        </div>
+        <div v-if="allGitRepos.length > 0" class="field-group">
+          <label class="field-group-label">GitOps</label>
+          <div class="field">
+            <label for="zone-git-repo">Git Repository</label>
+            <Select
+              id="zone-git-repo"
+              v-model="form.git_repo_id"
+              :options="[{ id: null, name: 'None' }, ...allGitRepos]"
+              optionLabel="name"
+              optionValue="id"
+              placeholder="None"
+              class="w-full"
+            />
+          </div>
+          <div v-if="form.git_repo_id" class="field">
+            <label for="zone-git-branch">Branch Override</label>
+            <InputText
+              id="zone-git-branch"
+              v-model="form.git_branch"
+              class="w-full"
+              placeholder="Use repo default"
+            />
+            <small class="text-surface-400">Leave blank to use the repository's default branch</small>
           </div>
         </div>
         <Button type="submit" :label="editingId ? 'Save' : 'Create'" class="w-full" />

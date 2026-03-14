@@ -20,7 +20,7 @@ class ZoneRepository;
 }  // namespace dns::dal
 
 namespace dns::gitops {
-class GitOpsMirror;
+class GitRepoManager;
 }
 
 namespace dns::core {
@@ -40,7 +40,7 @@ class DeploymentEngine {
                    dns::dal::ProviderRepository& prRepo,
                    dns::dal::DeploymentRepository& drRepo,
                    dns::dal::AuditRepository& arRepo,
-                   dns::gitops::GitOpsMirror* pGitMirror,
+                   dns::gitops::GitRepoManager* pGitRepoManager,
                    int iRetentionCount);
   ~DeploymentEngine();
 
@@ -66,7 +66,7 @@ class DeploymentEngine {
   dns::dal::ProviderRepository& _prRepo;
   dns::dal::DeploymentRepository& _drRepo;
   dns::dal::AuditRepository& _arRepo;
-  dns::gitops::GitOpsMirror* _pGitMirror;
+  dns::gitops::GitRepoManager* _pGitRepoManager;
   int _iRetentionCount;
 
   std::unordered_map<int64_t, std::unique_ptr<std::mutex>> _mZoneMutexes;
